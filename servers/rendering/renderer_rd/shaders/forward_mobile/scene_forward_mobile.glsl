@@ -1181,22 +1181,37 @@ void main() {
 
 	/////////////////////// LIGHTING //////////////////////////////
 
+#ifdef LIGHT_CLEARCOAT_USED
+	clearcoat_roughness *= 0.1;
+#endif
+
 #ifdef NORMAL_USED
-	if (sc_scene_roughness_limiter_enabled()) {
-		//https://www.jp.square-enix.com/tech/library/pdf/ImprovedGeometricSpecularAA.pdf
+	if (scene_data.roughness_limiter_enabled) {
+		// https://www.jp.square-enix.com/tech/library/pdf/ImprovedGeometricSpecularAA.pdf
 		float roughness2 = roughness * roughness;
-		vec3 dndu = dFdx(normal), dndv = dFdy(normal);
+		vec3 dndu = dFdx(geo_normal), dndv = dFdy(geo_normal);
 		float variance = scene_data.roughness_limiter_amount * (dot(dndu, dndu) + dot(dndv, dndv));
-		float kernelRoughness2 = min(2.0 * variance, scene_data.roughness_limiter_limit); //limit effect
-		float filteredRoughness2 = min(1.0, roughness2 + kernelRoughness2);
-		roughness = sqrt(filteredRoughness2);
+		float kernelRoughness2 = min(2.0 * variance, scene_data.roughness_limiter_limit);
+		roughness = sqrt(min(1.0, roughness2 + kernelRoughness2));
+#ifdef LIGHT_CLEARCOAT_USED
+		clearcoat_roughness = sqrt(min(1.0, clearcoat_roughness * clearcoat_roughness + kernelRoughness2));
+#endif
 	}
-#endif // NORMAL_USED
-	//apply energy conservation
+#endif
+
+	// Enforce minimum roughness such that roughness^2 > 0 in fp16, per Filament:
+	// https://github.com/google/filament/blob/9914eb84a4d613d609ae77a1d031fadf973db02c/shaders/src/common_material.fs#L4
+	roughness = max(0.007921, roughness);
+#ifdef LIGHT_CLEARCOAT_USED
+	clearcoat_roughness = max(0.007921, clearcoat_roughness);
+#endif
 
 	vec3 specular_light = vec3(0.0, 0.0, 0.0);
 	vec3 diffuse_light = vec3(0.0, 0.0, 0.0);
 	vec3 ambient_light = vec3(0.0, 0.0, 0.0);
+#ifdef LIGHT_CLEARCOAT_USED
+	vec3 cc_specular_light = vec3(0.0, 0.0, 0.0);
+#endif
 
 #ifndef MODE_UNSHADED
 	// Used in regular draw pass and when drawing SDFs for SDFGI and materials for VoxelGI.
@@ -1220,7 +1235,7 @@ void main() {
 		vec3 ref_vec = reflect(-view, normal);
 		ref_vec = mix(ref_vec, normal, roughness * roughness);
 #endif
-		float horizon = min(1.0 + dot(ref_vec, normal), 1.0);
+
 		ref_vec = scene_data.radiance_inverse_xform * ref_vec;
 #ifdef USE_RADIANCE_CUBEMAP_ARRAY
 
@@ -1233,10 +1248,7 @@ void main() {
 		specular_light = textureLod(samplerCube(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ref_vec, sqrt(roughness) * MAX_ROUGHNESS_LOD).rgb;
 
 #endif //USE_RADIANCE_CUBEMAP_ARRAY
-		specular_light *= sc_luminance_multiplier();
-		specular_light *= scene_data.IBL_exposure_normalization;
-		specular_light *= horizon * horizon;
-		specular_light *= scene_data.ambient_light_color_energy.a;
+		specular_light *= sc_luminance_multiplier() * scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
 	}
 
 #if defined(CUSTOM_RADIANCE_USED)
@@ -1255,9 +1267,8 @@ void main() {
 #else
 			vec3 cubemap_ambient = textureLod(samplerCube(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ambient_dir, MAX_ROUGHNESS_LOD).rgb;
 #endif //USE_RADIANCE_CUBEMAP_ARRAY
-			cubemap_ambient *= sc_luminance_multiplier();
-			cubemap_ambient *= scene_data.IBL_exposure_normalization;
-			ambient_light = mix(ambient_light, cubemap_ambient * scene_data.ambient_light_color_energy.a, scene_data.ambient_color_sky_mix);
+			cubemap_ambient *= sc_luminance_multiplier() * scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
+			ambient_light = mix(ambient_light, cubemap_ambient, scene_data.ambient_color_sky_mix);
 		}
 	}
 #endif // !USE_LIGHTMAP
@@ -1265,33 +1276,24 @@ void main() {
 #if defined(CUSTOM_IRRADIANCE_USED)
 	ambient_light = mix(ambient_light, custom_irradiance.rgb, custom_irradiance.a);
 #endif // CUSTOM_IRRADIANCE_USED
+
 #ifdef LIGHT_CLEARCOAT_USED
-
 	if (sc_scene_use_reflection_cubemap()) {
-		float NoV = max(dot(geo_normal, view), 0.0001); // We want to use geometric normal, not normal_map
-		vec3 ref_vec = reflect(-view, geo_normal);
+		vec3 ref_vec = reflect(-view, geo_normal); // We want to use geometric normal, not normal_map
 		ref_vec = mix(ref_vec, geo_normal, clearcoat_roughness * clearcoat_roughness);
-		// The clear coat layer assumes an IOR of 1.5 (4% reflectance)
-		float Fc = clearcoat * (0.04 + 0.96 * SchlickFresnel(NoV));
-		float attenuation = 1.0 - Fc;
-		ambient_light *= attenuation;
-		specular_light *= attenuation;
-
-		float horizon = min(1.0 + dot(ref_vec, normal), 1.0);
 		ref_vec = scene_data.radiance_inverse_xform * ref_vec;
-		float roughness_lod = mix(0.001, 0.1, sqrt(clearcoat_roughness)) * MAX_ROUGHNESS_LOD;
-#ifdef USE_RADIANCE_CUBEMAP_ARRAY
+		float roughness_lod = sqrt(clearcoat_roughness) * MAX_ROUGHNESS_LOD;
 
+#ifdef USE_RADIANCE_CUBEMAP_ARRAY
 		float lod, blend;
 		blend = modf(roughness_lod, lod);
 		vec3 clearcoat_light = texture(samplerCubeArray(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(ref_vec, lod)).rgb;
 		clearcoat_light = mix(clearcoat_light, texture(samplerCubeArray(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(ref_vec, lod + 1)).rgb, blend);
-
 #else
 		vec3 clearcoat_light = textureLod(samplerCube(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ref_vec, roughness_lod).rgb;
-
 #endif //USE_RADIANCE_CUBEMAP_ARRAY
-		specular_light += clearcoat_light * horizon * horizon * Fc * scene_data.ambient_light_color_energy.a;
+
+		cc_specular_light += clearcoat_light * (sc_luminance_multiplier() * scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a);
 	}
 #endif // LIGHT_CLEARCOAT_USED
 #endif // !AMBIENT_LIGHT_DISABLED
@@ -1377,6 +1379,9 @@ void main() {
 	if (sc_reflection_probes() > 0) {
 		vec4 reflection_accum = vec4(0.0, 0.0, 0.0, 0.0);
 		vec4 ambient_accum = vec4(0.0, 0.0, 0.0, 0.0);
+#ifdef LIGHT_CLEARCOAT_USED
+		vec3 cc_reflection_accum = vec3(0.0, 0.0, 0.0);
+#endif // LIGHT_CLEARCOAT_USED
 
 #ifdef LIGHT_ANISOTROPY_USED
 		// https://google.github.io/filament/Filament.html#lighting/imagebasedlights/anisotropy
@@ -1393,11 +1398,18 @@ void main() {
 		uvec2 reflection_indices = instances.data[draw_call.instance_index].reflection_probes;
 		for (uint i = 0; i < sc_reflection_probes(); i++) {
 			uint reflection_index = (i > 3) ? ((reflection_indices.y >> ((i - 4) * 8)) & 0xFF) : ((reflection_indices.x >> (i * 8)) & 0xFF);
-			reflection_process(reflection_index, vertex, ref_vec, bent_normal, roughness, ambient_light, specular_light, ambient_accum, reflection_accum);
+			reflection_process(reflection_index, vertex, ref_vec, normal, roughness, ambient_light, specular_light,
+#ifdef LIGHT_CLEARCOAT_USED
+			cc_specular_light, reflect(-view, geo_normal), clearcoat_roughness, cc_reflection_accum,
+#endif // LIGHT_CLEARCOAT_USED
+			ambient_accum, reflection_accum);
 		}
 
 		if (reflection_accum.a > 0.0) {
 			specular_light = reflection_accum.rgb / reflection_accum.a;
+#ifdef LIGHT_CLEARCOAT_USED
+			cc_specular_light = cc_reflection_accum / reflection_accum.a;
+#endif // LIGHT_CLEARCOAT_USED
 		}
 
 #if !defined(USE_LIGHTMAP)
@@ -1434,11 +1446,28 @@ void main() {
 		const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
 		const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
 		vec4 r = roughness * c0 + c1;
-		float ndotv = clamp(dot(normal, view), 0.0, 1.0);
+		float ndotv = clamp(dot(normal, view), 0.0001, 1.0);
 		float a004 = min(r.x * r.x, exp2(-9.28 * ndotv)) * r.x + r.y;
 		vec2 env = vec2(-1.04, 1.04) * a004 + r.zw;
 
-		specular_light *= env.x * f0 + env.y * clamp(50.0 * f0.g, metallic, 1.0);
+		float horizon = min(1.0 + dot(reflect(-view, normal), geo_normal), 1.0);
+		horizon *= horizon;
+
+		specular_light *= (env.x * f0 + env.y * clamp(50.0 * f0.g, metallic, 1.0)) * horizon;
+
+#ifdef LIGHT_CLEARCOAT_USED
+		// The clear coat layer assumes an IOR of 1.5 (4% reflectance).
+		// Attenuate underlying diffuse/specular by clearcoat fresnel (ONLY fresnel, hence we don't just invert the BRDF below).
+		float geo_ndotv = max(dot(geo_normal, view), 0.0001);
+		float cc_attenuation = 1.0 - clearcoat * (0.04 + 0.96 * SchlickFresnel(geo_ndotv));
+		ambient_light *= cc_attenuation;
+		specular_light *= cc_attenuation;
+
+		// Dielectric (IOR=1.5) simplification of the full BRDF approximation above, from the same source.
+		vec2 cc_r = clearcoat_roughness * c0.xy + c1.xy;
+		float cc_env = min(cc_r.x * cc_r.x, exp2(-9.28 * geo_ndotv)) * cc_r.x + cc_r.y;
+		specular_light += cc_specular_light * (cc_env * clearcoat);
+#endif // LIGHT_CLEARCOAT_USED
 #endif
 	}
 

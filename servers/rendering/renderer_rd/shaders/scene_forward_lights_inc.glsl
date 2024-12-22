@@ -129,22 +129,21 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 #if defined(DIFFUSE_BURLEY) || defined(SPECULAR_SCHLICK_GGX) || defined(LIGHT_CLEARCOAT_USED)
 		float cLdotH = clamp(A + dot(L, H), 0.0, 1.0);
 #endif
-#if defined(LIGHT_CLEARCOAT_USED)
+
+		float cc_attenuation = 1.0;
+#ifdef LIGHT_CLEARCOAT_USED // Get clearcoat first so its fresnel can attenuate the underlying diffuse and specular.
 		// Clearcoat ignores normal_map, use vertex normal instead
-		float ccNdotL = max(min(A + dot(vertex_normal, L), 1.0), 0.0);
+		float ccNdotL = clamp(A + dot(vertex_normal, L), 0.0, 1.0);
 		float ccNdotH = clamp(A + dot(vertex_normal, H), 0.0, 1.0);
-		float ccNdotV = max(dot(vertex_normal, V), 1e-4);
 		float cLdotH5 = SchlickFresnel(cLdotH);
 
-		float Dr = D_GGX(ccNdotH, mix(0.001, 0.1, clearcoat_roughness));
-		float Gr = 0.25 / (cLdotH * cLdotH);
-		float Fr = mix(.04, 1.0, cLdotH5);
-		float clearcoat_specular_brdf_NL = clearcoat * Gr * Fr * Dr * cNdotL;
+		float Dr = D_GGX(ccNdotH, clearcoat_roughness * clearcoat_roughness);
+		float Gr = 0.25 / max(0.0001, cLdotH * cLdotH);
+		float Fr = clearcoat * (0.04 + 0.96 * cLdotH5);
+		float clearcoat_specular_brdf_NL = Gr * Fr * Dr * ccNdotL;
 
 		specular_light += clearcoat_specular_brdf_NL * light_color * attenuation * specular_amount;
-
-		// TODO: Clearcoat adds light to the scene right now (it is non-energy conserving), both diffuse and specular need to be scaled by (1.0 - FR)
-		// but to do so we need to rearrange this entire function
+		cc_attenuation = 1.0 - Fr;
 #endif // LIGHT_CLEARCOAT_USED
 
 		if (metallic < 1.0) {
@@ -170,10 +169,10 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 			diffuse_brdf_NL = cNdotL * (1.0 / M_PI);
 #endif
 
-			diffuse_light += light_color * diffuse_brdf_NL * attenuation;
+			diffuse_light += light_color * diffuse_brdf_NL * attenuation * cc_attenuation;
 
 #if defined(LIGHT_BACKLIGHT_USED)
-			diffuse_light += light_color * (vec3(1.0 / M_PI) - diffuse_brdf_NL) * backlight * attenuation;
+			diffuse_light += light_color * (vec3(1.0 / M_PI) - diffuse_brdf_NL) * backlight * attenuation * cc_attenuation;
 #endif
 		}
 
@@ -218,7 +217,7 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 			float f90 = clamp(dot(f0, vec3(50.0 * 0.33)), metallic, 1.0);
 			vec3 F = f0 + (f90 - f0) * cLdotH5;
 			vec3 specular_brdf_NL = cNdotL * D * F * G;
-			specular_light += specular_brdf_NL * light_color * attenuation * specular_amount;
+			specular_light += specular_brdf_NL * light_color * attenuation * cc_attenuation * specular_amount;
 #endif
 		}
 
@@ -867,7 +866,11 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 v
 			diffuse_light, specular_light);
 }
 
-void reflection_process(uint ref_index, vec3 vertex, vec3 ref_vec, vec3 normal, float roughness, vec3 ambient_light, vec3 specular_light, inout vec4 ambient_accum, inout vec4 reflection_accum) {
+void reflection_process(uint ref_index, vec3 vertex, vec3 ref_vec, vec3 normal, float roughness, vec3 ambient_light, vec3 specular_light,
+#ifdef LIGHT_CLEARCOAT_USED
+		vec3 cc_specular_light, vec3 cc_ref_vec, float cc_roughness, inout vec3 cc_reflection_accum,
+#endif // LIGHT_CLEARCOAT_USED
+		inout vec4 ambient_accum, inout vec4 reflection_accum) {
 	vec3 box_extents = reflections.data[ref_index].box_extents;
 	vec3 local_pos = (reflections.data[ref_index].local_matrix * vec4(vertex, 1.0)).xyz;
 
@@ -915,6 +918,31 @@ void reflection_process(uint ref_index, vec3 vertex, vec3 ref_vec, vec3 normal, 
 		reflection.rgb *= reflection.a;
 
 		reflection_accum += reflection;
+
+#ifdef LIGHT_CLEARCOAT_USED
+		vec3 local_cc_ref_vec = (reflections.data[ref_index].local_matrix * vec4(cc_ref_vec, 0.0)).xyz;
+
+		if (reflections.data[ref_index].box_project) { // Box project.
+
+			vec3 nrdir = normalize(local_cc_ref_vec);
+			vec3 rbmax = (box_extents - local_pos) / nrdir;
+			vec3 rbmin = (-box_extents - local_pos) / nrdir;
+
+			vec3 rbminmax = mix(rbmin, rbmax, greaterThan(nrdir, vec3(0.0, 0.0, 0.0)));
+
+			float fa = min(min(rbminmax.x, rbminmax.y), rbminmax.z);
+			vec3 posonbox = local_pos + nrdir * fa;
+			local_cc_ref_vec = posonbox - reflections.data[ref_index].box_offset;
+		}
+
+		vec3 cc_reflection = textureLod(samplerCubeArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(local_cc_ref_vec, reflections.data[ref_index].index), sqrt(cc_roughness) * MAX_ROUGHNESS_LOD).rgb * sc_luminance_multiplier();
+		cc_reflection *= reflections.data[ref_index].exposure_normalization;
+		if (reflections.data[ref_index].exterior) {
+			cc_reflection = mix(cc_specular_light, cc_reflection, blend);
+		}
+		cc_reflection *= reflections.data[ref_index].intensity * blend;
+		cc_reflection_accum += cc_reflection;
+#endif // LIGHT_CLEARCOAT_USED
 	}
 
 	switch (reflections.data[ref_index].ambient_mode) {

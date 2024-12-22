@@ -1332,6 +1332,22 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 	float cLdotH = clamp(A + dot(L, H), 0.0, 1.0);
 #endif
 
+	float cc_attenuation = 1.0;
+#ifdef LIGHT_CLEARCOAT_USED // Get clearcoat first so its fresnel can attenuate the underlying diffuse and specular.
+	// Clearcoat ignores normal_map, use vertex normal instead
+	float ccNdotL = clamp(A + dot(vertex_normal, L), 0.0, 1.0);
+	float ccNdotH = clamp(A + dot(vertex_normal, H), 0.0, 1.0);
+	float cLdotH5 = SchlickFresnel(cLdotH);
+
+	float Dr = D_GGX(ccNdotH, clearcoat_roughness * clearcoat_roughness);
+	float Gr = 0.25 / max(0.0001, cLdotH * cLdotH);
+	float Fr = clearcoat * (0.04 + 0.96 * cLdotH5);
+	float clearcoat_specular_brdf_NL = Gr * Fr * Dr * ccNdotL;
+
+	specular_light += clearcoat_specular_brdf_NL * light_color * attenuation * specular_amount;
+	cc_attenuation = 1.0 - Fr;
+#endif // LIGHT_CLEARCOAT_USED
+
 	if (metallic < 1.0) {
 		float diffuse_brdf_NL; // BRDF times N.L for calculating diffuse radiance
 
@@ -1353,10 +1369,10 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 		diffuse_brdf_NL = cNdotL * (1.0 / M_PI);
 #endif
 
-		diffuse_light += light_color * diffuse_brdf_NL * attenuation;
+		diffuse_light += light_color * diffuse_brdf_NL * attenuation * cc_attenuation;
 
 #if defined(LIGHT_BACKLIGHT_USED)
-		diffuse_light += light_color * (vec3(1.0 / M_PI) - diffuse_brdf_NL) * backlight * attenuation;
+		diffuse_light += light_color * (vec3(1.0 / M_PI) - diffuse_brdf_NL) * backlight * attenuation * cc_attenuation;
 #endif
 
 #if defined(LIGHT_RIM_USED)
@@ -1398,7 +1414,9 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 		float G = V_GGX(cNdotL, cNdotV, alpha_ggx);
 #endif // LIGHT_ANISOTROPY_USED
 	   // F
+#if !defined(LIGHT_CLEARCOAT_USED)
 		float cLdotH5 = SchlickFresnel(cLdotH);
+#endif
 		// Calculate Fresnel using cheap approximate specular occlusion term from Filament:
 		// https://google.github.io/filament/Filament.html#lighting/occlusion/specularocclusion
 		float f90 = clamp(50.0 * f0.g, 0.0, 1.0);
@@ -1406,27 +1424,8 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 
 		vec3 specular_brdf_NL = cNdotL * D * F * G;
 
-		specular_light += specular_brdf_NL * light_color * attenuation * specular_amount;
+		specular_light += specular_brdf_NL * light_color * attenuation * cc_attenuation * specular_amount;
 #endif
-
-#if defined(LIGHT_CLEARCOAT_USED)
-		// Clearcoat ignores normal_map, use vertex normal instead
-		float ccNdotL = max(min(A + dot(vertex_normal, L), 1.0), 0.0);
-		float ccNdotH = clamp(A + dot(vertex_normal, H), 0.0, 1.0);
-		float ccNdotV = max(dot(vertex_normal, V), 1e-4);
-
-#if !defined(SPECULAR_SCHLICK_GGX)
-		float cLdotH5 = SchlickFresnel(cLdotH);
-#endif
-		float Dr = D_GGX(ccNdotH, mix(0.001, 0.1, clearcoat_roughness));
-		float Gr = 0.25 / (cLdotH * cLdotH);
-		float Fr = mix(.04, 1.0, cLdotH5);
-		float clearcoat_specular_brdf_NL = clearcoat * Gr * Fr * Dr * cNdotL;
-
-		specular_light += clearcoat_specular_brdf_NL * light_color * attenuation * specular_amount;
-		// TODO: Clearcoat adds light to the scene right now (it is non-energy conserving), both diffuse and specular need to be scaled by (1.0 - FR)
-		// but to do so we need to rearrange this entire function
-#endif // LIGHT_CLEARCOAT_USED
 	}
 
 #ifdef USE_SHADOW_TO_OPACITY
@@ -1650,7 +1649,7 @@ void reflection_process(samplerCube reflection_map,
 		ref_normal = posonbox - box_offset.xyz;
 	}
 
-	reflection.rgb = srgb_to_linear(textureLod(reflection_map, ref_normal, roughness * MAX_ROUGHNESS_LOD).rgb);
+	reflection.rgb = srgb_to_linear(textureLod(reflection_map, ref_normal, sqrt(roughness) * MAX_ROUGHNESS_LOD).rgb);
 
 	if (exterior) {
 		reflection.rgb = mix(skybox, reflection.rgb, blend);
@@ -1955,10 +1954,20 @@ void main() {
 	emission = srgb_to_linear(emission);
 	// TODO Backlight and transmittance when used
 #ifndef MODE_UNSHADED
+
+	// Enforce minimum roughness such that roughness^2 > 0 in fp16, per Filament:
+	// https://github.com/google/filament/blob/9914eb84a4d613d609ae77a1d031fadf973db02c/shaders/src/common_material.fs#L4
+	roughness = max(0.007921, roughness);
+#ifdef LIGHT_CLEARCOAT_USED
+	clearcoat_roughness = max(0.007921, clearcoat_roughness * 0.1);
+#endif
 	vec3 f0 = F0(metallic, specular, albedo);
 	vec3 specular_light = vec3(0.0, 0.0, 0.0);
 	vec3 diffuse_light = vec3(0.0, 0.0, 0.0);
 	vec3 ambient_light = vec3(0.0, 0.0, 0.0);
+#ifdef LIGHT_CLEARCOAT_USED
+	vec3 cc_specular_light = vec3(0.0, 0.0, 0.0);
+#endif
 
 #ifdef BASE_PASS
 	/////////////////////// LIGHTING //////////////////////////////
@@ -1981,11 +1990,10 @@ void main() {
 		vec3 ref_vec = reflect(-view, normal);
 #endif
 		ref_vec = mix(ref_vec, normal, roughness * roughness);
-		float horizon = min(1.0 + dot(ref_vec, normal), 1.0);
 		ref_vec = scene_data.radiance_inverse_xform * ref_vec;
+
 		specular_light = textureLod(radiance_map, ref_vec, sqrt(roughness) * RADIANCE_MAX_LOD).rgb;
 		specular_light = srgb_to_linear(specular_light);
-		specular_light *= horizon * horizon;
 		specular_light *= scene_data.ambient_light_color_energy.a;
 	}
 #endif // USE_RADIANCE_MAP
@@ -2128,7 +2136,7 @@ void main() {
 		const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
 		const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
 		vec4 r = roughness * c0 + c1;
-		float ndotv = clamp(dot(normal, view), 0.0, 1.0);
+		float ndotv = clamp(dot(normal, view), 0.0001, 1.0);
 
 		float a004 = min(r.x * r.x, exp2(-9.28 * ndotv)) * r.x + r.y;
 		vec2 env = vec2(-1.04, 1.04) * a004 + r.zw;
