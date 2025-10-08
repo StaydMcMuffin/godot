@@ -189,6 +189,9 @@ protected:
 	ShaderRD();
 	void setup(const char *p_vertex_code, const char *p_fragment_code, const char *p_compute_code, const char *p_name);
 	void setup_raytracing(const char *p_raygen_code, const char *p_any_hit_code, const char *p_closest_hit_code, const char *p_miss_code, const char *p_intersection_code, const char *p_name);
+#ifdef DEV_ENABLED
+	virtual char const *rel_shader_path() const { return ""; }
+#endif
 
 public:
 	RID version_create(bool p_embedded = true);

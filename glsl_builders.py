@@ -237,10 +237,14 @@ public:
 		static const char *_compute_code = nullptr;
 		setup(_vertex_code, _fragment_code, _compute_code, "{class_name}");
 """)
+        file.write(f"""\
+	}}
 
-        file.write("""\
-	}
-};
+protected:
+#ifdef DEV_ENABLED
+	const char *rel_shader_path() const override {{ return "{os.path.relpath(shader)}"; }}
+#endif
+}};
 """)
 
 
