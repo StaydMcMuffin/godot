@@ -183,29 +183,86 @@ ClusterBuilderSharedDataRD::ClusterBuilderSharedDataRD() {
 
 		cone_index_array = RD::get_singleton()->index_array_create(cone_index_buffer, 0, cone_triangle_count * 3);
 
-		float min_d = 1e20;
-		for (uint32_t i = 0; i < cone_triangle_count; i++) {
-			Vector3 vertices[3];
-			int32_t zero_index = -1;
-			for (uint32_t j = 0; j < 3; j++) {
-				uint32_t index = cone_triangle_indices[i * 3 + j];
-				for (uint32_t k = 0; k < 3; k++) {
-					vertices[j][k] = cone_vertices[index * 3 + k];
+		// Calculate cone mesh overfit.
+		{
+			float min_d = 1e20;
+			for (uint32_t i = 0; i < cone_triangle_count; i++) {
+				Vector3 vertices[3];
+				int32_t zero_index = -1;
+				for (uint32_t j = 0; j < 3; j++) {
+					uint32_t index = cone_triangle_indices[i * 3 + j];
+					for (uint32_t k = 0; k < 3; k++) {
+						vertices[j][k] = cone_vertices[index * 3 + k];
+					}
+					if (vertices[j] == Vector3()) {
+						zero_index = j;
+					}
 				}
-				if (vertices[j] == Vector3()) {
-					zero_index = j;
-				}
-			}
 
-			if (zero_index != -1) {
-				Vector3 a = vertices[(zero_index + 1) % 3];
-				Vector3 b = vertices[(zero_index + 2) % 3];
-				Vector3 c = a + Vector3(0, 0, 1);
-				Plane p(a, b, c);
-				min_d = MIN(Math::abs(p.d), min_d);
+				if (zero_index != -1) {
+					Vector3 a = vertices[(zero_index + 1) % 3];
+					Vector3 b = vertices[(zero_index + 2) % 3];
+					Vector3 c = a + Vector3(0, 0, 1);
+					Plane p(a, b, c);
+					min_d = MIN(Math::abs(p.d), min_d);
+				}
 			}
+			cone_overfit = 1.0 / min_d;
 		}
-		cone_overfit = 1.0 / min_d;
+	}
+
+	// Pyramid mesh data.
+	{
+		static const uint32_t pyramid_vertex_count = 5;
+		static const float pyramid_vertices[pyramid_vertex_count * 3] =
+		{
+			 1, 1,-1,
+			 1,-1,-1,
+			-1,-1,-1,
+			-1, 1,-1,
+			 0, 0, 0
+		};
+		static const uint32_t pyramid_triangle_count = 6;
+		static const uint16_t pyramid_triangle_indices[pyramid_triangle_count * 3] =
+		{
+			0, 4, 1,
+			1, 4, 2,
+			0, 2, 3,
+			2, 4, 3,
+			3, 4, 0,
+			0, 1, 2
+		};
+		/*
+		Vector<uint8_t> vertex_data;
+		vertex_data.resize(sizeof(float) * pyramid_vertex_count * 3);
+		memcpy(vertex_data.ptrw(), pyramid_vertices, vertex_data.size());
+		pyramid_vertex_buffer = RD::get_singleton()->vertex_buffer_create(vertex_data.size(), vertex_data);
+		pyramid_vertex_array = RD::get_singleton()->vertex_array_create(pyramid_vertex_count, vertex_format, Vector<RID>{pyramid_vertex_buffer});
+
+		Vector<uint8_t> index_data;
+		index_data.resize(sizeof(uint16_t) * pyramid_triangle_count * 3);
+		memcpy(index_data.ptrw(), pyramid_triangle_indices, index_data.size());
+		pyramid_index_buffer = RD::get_singleton()->index_buffer_create(pyramid_triangle_count * 3, RD::INDEX_BUFFER_FORMAT_UINT16, index_data);
+		pyramid_index_array = RD::get_singleton()->index_array_create(pyramid_index_buffer, 0, pyramid_triangle_count * 3);
+		*/
+		Vector<uint8_t> vertex_data;
+		vertex_data.resize(sizeof(float) * pyramid_vertex_count * 3);
+		memcpy(vertex_data.ptrw(), pyramid_vertices, vertex_data.size());
+
+		pyramid_vertex_buffer = RD::get_singleton()->vertex_buffer_create(vertex_data.size(), vertex_data);
+
+		Vector<uint8_t> index_data;
+		index_data.resize(sizeof(uint16_t) * pyramid_triangle_count * 3);
+		memcpy(index_data.ptrw(), pyramid_triangle_indices, index_data.size());
+
+		pyramid_index_buffer = RD::get_singleton()->index_buffer_create(pyramid_triangle_count * 3, RD::INDEX_BUFFER_FORMAT_UINT16, index_data);
+
+		Vector<RID> buffers;
+		buffers.push_back(pyramid_vertex_buffer);
+
+		pyramid_vertex_array = RD::get_singleton()->vertex_array_create(pyramid_vertex_count, vertex_format, buffers);
+
+		pyramid_index_array = RD::get_singleton()->index_array_create(pyramid_index_buffer, 0, pyramid_triangle_count * 3);
 	}
 
 	{ // Box mesh data.
@@ -243,6 +300,8 @@ ClusterBuilderSharedDataRD::~ClusterBuilderSharedDataRD() {
 	RD::get_singleton()->free_rid(sphere_index_buffer);
 	RD::get_singleton()->free_rid(cone_vertex_buffer);
 	RD::get_singleton()->free_rid(cone_index_buffer);
+	RD::get_singleton()->free_rid(pyramid_vertex_buffer);
+	RD::get_singleton()->free_rid(pyramid_index_buffer);
 	RD::get_singleton()->free_rid(box_vertex_buffer);
 	RD::get_singleton()->free_rid(box_index_buffer);
 
@@ -435,7 +494,8 @@ void ClusterBuilderRD::begin(const Transform3D &p_view_transform, const Projecti
 	}
 }
 
-void ClusterBuilderRD::bake_cluster() {
+void ClusterBuilderRD::bake_cluster()
+{
 	RENDER_TIMESTAMP("> Bake 3D Cluster");
 
 	RD::get_singleton()->draw_command_begin_label("Bake Light Cluster");
@@ -443,12 +503,13 @@ void ClusterBuilderRD::bake_cluster() {
 	// Clear cluster buffer.
 	RD::get_singleton()->buffer_clear(cluster_buffer, 0, cluster_buffer_size);
 
-	if (render_element_count > 0) {
+	if (render_element_count > 0)
+	{
 		// Clear render buffer.
 		RD::get_singleton()->buffer_clear(cluster_render_buffer, 0, cluster_render_buffer_size);
 
-		{ // Fill state uniform.
-
+		// Fill state uniform.
+		{
 			StateUniform state;
 
 			RendererRD::MaterialStorage::store_camera(adjusted_projection, state.projection);
@@ -464,7 +525,6 @@ void ClusterBuilderRD::bake_cluster() {
 		}
 
 		// Update instances.
-
 		RD::get_singleton()->buffer_update(element_buffer, 0, sizeof(RenderElementData) * render_element_count, render_elements);
 
 		RENDER_TIMESTAMP("Render 3D Cluster Elements");
@@ -477,29 +537,38 @@ void ClusterBuilderRD::bake_cluster() {
 			RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, shared->cluster_render.shader_pipelines[use_msaa ? ClusterBuilderSharedDataRD::ClusterRender::PIPELINE_MSAA : ClusterBuilderSharedDataRD::ClusterRender::PIPELINE_NORMAL]);
 			RD::get_singleton()->draw_list_bind_uniform_set(draw_list, cluster_render_uniform_set, 0);
 
-			for (uint32_t i = 0; i < render_element_count;) {
+			for (uint32_t i = 0; i < render_element_count;)
+			{
 				push_constant.base_index = i;
-				switch (render_elements[i].type) {
-					case ELEMENT_TYPE_OMNI_LIGHT: {
+				switch (render_elements[i].type)
+				{
+					case ELEMENT_TYPE_OMNI_LIGHT:
+					{
 						RD::get_singleton()->draw_list_bind_vertex_array(draw_list, shared->sphere_vertex_array);
 						RD::get_singleton()->draw_list_bind_index_array(draw_list, shared->sphere_index_array);
 					} break;
-					case ELEMENT_TYPE_SPOT_LIGHT: {
+					case ELEMENT_TYPE_SPOT_LIGHT:
+					{
 						// If the spot angle is above a certain threshold, use a sphere instead of a cone for building the clusters
 						// since the cone gets too flat/large (spot angle close to 90 degrees) or
 						// can't even cover the affected area of the light (spot angle above 90 degrees).
-						if (render_elements[i].has_wide_spot_angle) {
+						if (render_elements[i].has_wide_spot_angle)
+						{
 							RD::get_singleton()->draw_list_bind_vertex_array(draw_list, shared->sphere_vertex_array);
 							RD::get_singleton()->draw_list_bind_index_array(draw_list, shared->sphere_index_array);
-						} else {
+						}
+						else if (render_elements[i].spot_frustum)
+						{
+							RD::get_singleton()->draw_list_bind_vertex_array(draw_list, shared->pyramid_vertex_array);
+							RD::get_singleton()->draw_list_bind_index_array(draw_list, shared->pyramid_index_array);
+						}
+						else
+						{
 							RD::get_singleton()->draw_list_bind_vertex_array(draw_list, shared->cone_vertex_array);
 							RD::get_singleton()->draw_list_bind_index_array(draw_list, shared->cone_index_array);
 						}
 					} break;
-					case ELEMENT_TYPE_AREA_LIGHT: {
-						RD::get_singleton()->draw_list_bind_vertex_array(draw_list, shared->box_vertex_array);
-						RD::get_singleton()->draw_list_bind_index_array(draw_list, shared->box_index_array);
-					} break;
+					case ELEMENT_TYPE_AREA_LIGHT:
 					case ELEMENT_TYPE_DECAL:
 					case ELEMENT_TYPE_REFLECTION_PROBE: {
 						RD::get_singleton()->draw_list_bind_vertex_array(draw_list, shared->box_vertex_array);
@@ -515,9 +584,10 @@ void ClusterBuilderRD::bake_cluster() {
 			}
 			RD::get_singleton()->draw_list_end();
 		}
-		// Store elements.
+		
 		RENDER_TIMESTAMP("Pack 3D Cluster Elements");
 
+		// Store elements.
 		{
 			RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 			RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, shared->cluster_store.shader_pipeline);

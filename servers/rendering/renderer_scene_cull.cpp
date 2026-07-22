@@ -2671,6 +2671,49 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 	return animated_material_found;
 }
 
+void RendererSceneCull::_light_instance_update_proj(Instance *p_instance)
+{
+	InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
+	RID instance_rid = light->instance;
+
+	Transform3D light_transform = p_instance->transform.orthonormalized();
+	real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
+
+	switch (RSG::light_storage->light_get_type(p_instance->base))
+	{
+		case RSE::LIGHT_OMNI:
+		{
+			RSE::LightOmniShadowMode shadow_mode = RSG::light_storage->light_omni_get_shadow_mode(p_instance->base);
+			if (true || shadow_mode == RSE::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID || !RSG::light_storage->light_instances_can_render_shadow_cube())
+			{
+				RSG::light_storage->light_instance_set_shadow_transform(instance_rid, Projection(), light_transform, radius, 0, 0, 0);
+			}
+			else
+			{
+				Projection cm;
+				cm.set_perspective(90.0, 1.0, MIN(0.025f, radius), radius);
+
+				Transform3D xform = light_transform * Transform3D().looking_at(Vector3::RIGHT, Vector3::DOWN);
+				RSG::light_storage->light_instance_set_shadow_transform(instance_rid, cm, xform, radius, 0, 0, 0);
+			}
+		} break;
+		case RSE::LIGHT_SPOT:
+		{
+			real_t angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
+
+			Projection cm;
+			cm.set_perspective(angle * 2.0, 1.0, MIN(0.025f, radius), radius);
+
+			RSG::light_storage->light_instance_set_shadow_transform(instance_rid, cm, light_transform, radius, 0, 0, 0);
+		} break;
+		case RSE::LIGHT_AREA:
+		{
+			RSG::light_storage->light_instance_set_shadow_transform(instance_rid, Projection(), light_transform, radius, 0, 0, 0);
+		}
+		default: break;
+	}
+}
+
 void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_screen_mesh_lod_threshold, RID p_shadow_atlas, Ref<XRInterface> &p_xr_interface, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info) {
 #ifndef _3D_DISABLED
 
@@ -3478,18 +3521,18 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 	max_shadows_used = 0;
 
-	if (p_using_shadows) { //setup shadow maps
-
+	// Setup shadow buffers
+	if (p_using_shadows)
+	{
 		// Directional Shadows
-
-		for (uint32_t i = 0; i < cull.shadow_count; i++) {
-			for (uint32_t j = 0; j < cull.shadows[i].cascade_count; j++) {
+		for (uint32_t i = 0; i < cull.shadow_count; i++)
+		{
+			for (uint32_t j = 0; j < cull.shadows[i].cascade_count; j++)
+			{
 				const Cull::Shadow::Cascade &c = cull.shadows[i].cascades[j];
-				//			print_line("shadow " + itos(i) + " cascade " + itos(j) + " elements: " + itos(c.cull_result.size()));
 				RSG::light_storage->light_instance_set_shadow_transform(cull.shadows[i].light_instance, c.projection, c.transform, c.zfar, c.split, j, c.shadow_texel_size, c.bias_scale, c.range_begin, c.uv_scale);
-				if (max_shadows_used == MAX_UPDATE_SHADOWS) {
+				if (max_shadows_used == MAX_UPDATE_SHADOWS)
 					continue;
-				}
 				render_shadow_data[max_shadows_used].light = cull.shadows[i].light_instance;
 				render_shadow_data[max_shadows_used].pass = j;
 				render_shadow_data[max_shadows_used].instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
@@ -3498,21 +3541,18 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		}
 
 		// Positional Shadows
-		for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++) {
-			Instance *ins = scene_cull_result.lights[i];
-
-			if (!p_shadow_atlas.is_valid()) {
+		for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++)
+		{
+			if (!p_shadow_atlas.is_valid())
 				continue;
-			}
 
+			Instance *ins = scene_cull_result.lights[i];
 			InstanceLightData *light = static_cast<InstanceLightData *>(ins->base_data);
 
-			if (!RSG::light_storage->light_instance_is_shadow_visible_at_position(light->instance, camera_position)) {
+			if (!RSG::light_storage->light_instance_is_shadow_visible_at_position(light->instance, camera_position))
 				continue;
-			}
 
-			float coverage = 0.f;
-
+			float coverage = 0.0;
 			{ //compute coverage
 
 				Transform3D cam_xf = p_camera_data->main_transform;
@@ -3609,7 +3649,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			// so that we can turn off tighter caster culling.
 			light->detect_light_intersects_multiple_cameras(Engine::get_singleton()->get_frames_drawn());
 
-			if (light->is_shadow_dirty()) {
+			if (light->is_shadow_dirty())
+			{
 				// Dirty shadows have no need to be drawn if
 				// the light volume doesn't intersect the camera frustum.
 
@@ -3626,7 +3667,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				// There is however a cost to tighter shadow culling in this situation (2 shadow updates in 1 frame),
 				// so we should detect this and switch off tighter caster culling automatically.
 				// This is done in the logic for `decrement_shadow_dirty()`.
-				if (allow_redraw) {
+				if (allow_redraw)
+				{
 					light->last_version++;
 					light->decrement_shadow_dirty();
 				}
@@ -3634,23 +3676,26 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 			bool redraw = RSG::light_storage->shadow_atlas_update_light(p_shadow_atlas, light->instance, coverage, light->last_version);
 
-			if (redraw && max_shadows_used < MAX_UPDATE_SHADOWS) {
+			if (redraw && max_shadows_used < MAX_UPDATE_SHADOWS)
+			{
 				//must redraw!
 				RENDER_TIMESTAMP("> Render Light3D " + itos(i));
-				if (_light_instance_update_shadow(ins, p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect, p_shadow_atlas, scenario, p_screen_mesh_lod_threshold, p_visible_layers)) {
+				if (_light_instance_update_shadow(ins, p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect, p_shadow_atlas, scenario, p_screen_mesh_lod_threshold, p_visible_layers))
 					light->make_shadow_dirty();
-				}
 				RENDER_TIMESTAMP("< Render Light3D " + itos(i));
-			} else {
-				if (redraw) {
+			}
+			else
+			{
+				if (light->uses_projector)
+					_light_instance_update_proj(ins);
+
+				if (redraw)
 					light->make_shadow_dirty();
-				}
 			}
 		}
 	}
 
-	//render SDFGI
-
+	// Render SDFGI
 	{
 		// Q: Should this whole block be skipped if we're rendering our reflection probe?
 

@@ -35,7 +35,8 @@
 #include "servers/rendering/renderer_rd/shaders/cluster_store.glsl.gen.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 
-class ClusterBuilderSharedDataRD {
+class ClusterBuilderSharedDataRD
+{
 	friend class ClusterBuilderRD;
 
 	RID sphere_vertex_buffer;
@@ -49,6 +50,11 @@ class ClusterBuilderSharedDataRD {
 	RID cone_index_buffer;
 	RID cone_index_array;
 	float cone_overfit = 0.0; // Because an cone mesh is not a perfect cone, we need to enlarge it to cover the actual cone area.
+
+	RID pyramid_vertex_buffer;
+	RID pyramid_vertex_array;
+	RID pyramid_index_buffer;
+	RID pyramid_index_array;
 
 	RID box_vertex_buffer;
 	RID box_vertex_array;
@@ -167,7 +173,9 @@ private:
 		uint32_t original_index;
 		float transform_inv[12]; // Transposed transform for less space.
 		float scale[3];
-		uint32_t has_wide_spot_angle;
+		uint8_t has_wide_spot_angle;
+		uint8_t spot_frustum;
+		uint8_t pad[2];
 	}; // Keep aligned to 32 bytes.
 
 	uint32_t cluster_count_by_type[ELEMENT_TYPE_MAX] = {};
@@ -233,7 +241,7 @@ public:
 
 	void begin(const Transform3D &p_view_transform, const Projection &p_cam_projection, bool p_flip_y);
 
-	_FORCE_INLINE_ void add_light(LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, const Vector2 &p_area_size) {
+	_FORCE_INLINE_ void add_light(LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, bool p_spot_frustum, const Vector2 &p_area_size) {
 		if (p_type == LIGHT_TYPE_OMNI && cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT] == max_elements_by_type) {
 			return; // Max number elements reached.
 		}
@@ -282,6 +290,7 @@ public:
 			} else { // LIGHT_TYPE_SPOT with wide angle.
 				e.type = ELEMENT_TYPE_SPOT_LIGHT;
 				e.has_wide_spot_angle = true;
+				e.spot_frustum = false;
 				e.original_index = cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT];
 				cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT]++;
 			}
@@ -307,25 +316,27 @@ public:
 			CONE_MINMAX(-1, -1);
 			CONE_MINMAX(1, -1);
 
-			if (camera_orthogonal) {
-				e.touches_near = min_d < z_near;
-			} else {
+			if (!camera_orthogonal)
+			{
 				Plane base_plane(-xform.basis.get_column(Vector3::AXIS_Z), xform.origin);
 				float dist = base_plane.distance_to(Vector3());
 				if (dist >= 0 && dist < radius) {
 					// Contains camera inside light, check angle.
 					float angle = Math::rad_to_deg(Math::acos((-xform.origin.normalized()).dot(-xform.basis.get_column(Vector3::AXIS_Z))));
-					e.touches_near = angle < p_spot_aperture * 1.05; //overfit aperture a little due to cone overfit
+					e.touches_near = angle < p_spot_aperture * (p_spot_frustum ? 1.414 : 1.05); //overfit aperture a little due to cone overfit
 				} else {
 					e.touches_near = false;
 				}
 			}
+			else
+				e.touches_near = min_d < z_near;
 
 			e.touches_far = max_d > z_far;
 			e.scale[0] = len * shared->cone_overfit;
 			e.scale[1] = len * shared->cone_overfit;
 			e.scale[2] = radius;
 			e.has_wide_spot_angle = false;
+			e.spot_frustum = p_spot_frustum;
 			e.type = ELEMENT_TYPE_SPOT_LIGHT;
 			e.original_index = cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT];
 
