@@ -8,6 +8,7 @@ CompileFlags:
   Add:
     # Some thirdparty includes seem to require a high -ferror-limit to pass checks.
     - -ferror-limit=100
+  CompilationDatabase: bin/
 
 Diagnostics:
   Includes:

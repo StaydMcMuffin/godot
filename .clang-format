@@ -46,11 +46,11 @@ AlignOperands: DontAlign
 AlignTrailingComments:
   Kind: Never
   OverEmptyLines: 0
-# AllowAllArgumentsOnNextLine: true
-AllowAllParametersOfDeclarationOnNextLine: false
-# AllowBreakBeforeNoexceptSpecifier: Never
-# AllowShortBlocksOnASingleLine: Never
-# AllowShortCaseLabelsOnASingleLine: false
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowBreakBeforeNoexceptSpecifier: OnlyWithParen
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
 # AllowShortCompoundRequirementOnASingleLine: true
 # AllowShortEnumsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: Inline
@@ -67,48 +67,48 @@ AttributeMacros:
   - _NO_INLINE_
 # BinPackArguments: true
 # BinPackParameters: true
-# BitFieldColonSpacing: Both
-# BraceWrapping:
-#   AfterCaseLabel: false
-#   AfterClass: false
-#   AfterControlStatement: Never
-#   AfterEnum: false
-#   AfterFunction: false
-#   AfterNamespace: false
-#   AfterObjCDeclaration: false
-#   AfterStruct: false
-#   AfterUnion: false
-#   AfterExternBlock: false
-#   BeforeCatch: false
-#   BeforeElse: false
-#   BeforeLambdaBody: false
-#   BeforeWhile: false
-#   IndentBraces: false
-#   SplitEmptyFunction: true
-#   SplitEmptyRecord: true
-#   SplitEmptyNamespace: true
+BitFieldColonSpacing: After
+BraceWrapping:
+  AfterCaseLabel: true
+  AfterClass: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterObjCDeclaration: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: true
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeLambdaBody: true
+  BeforeWhile: true
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
 # BreakAdjacentStringLiterals: true
 # BreakAfterAttributes: Leave
 # BreakAfterJavaFieldAnnotations: false
 # BreakArrays: true
-# BreakBeforeBinaryOperators: None
-# BreakBeforeBraces: Attach
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Custom
 # BreakBeforeConceptDeclarations: Always
 # BreakBeforeInlineASMColon: OnlyMultiline
-# BreakBeforeTernaryOperators: true
+BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: AfterColon
-# BreakInheritanceList: BeforeColon
+BreakInheritanceList: AfterColon
 # BreakStringLiterals: true
 ColumnLimit: 0
 # CommentPragmas: "^ IWYU pragma:"
-# CompactNamespaces: false
+CompactNamespaces: false
 ConstructorInitializerIndentWidth: 8
 ContinuationIndentWidth: 8
 Cpp11BracedListStyle: false
 # DerivePointerAlignment: false
 # DisableFormat: false
-# EmptyLineAfterAccessModifier: Never
-# EmptyLineBeforeAccessModifier: LogicalBlock
+EmptyLineAfterAccessModifier: Never
+EmptyLineBeforeAccessModifier: Always
 # ExperimentalAutoDetectBinPacking: false
 # FixNamespaceComments: true
 # ForEachMacros:
@@ -138,18 +138,18 @@ IncludeCategories:
     Priority: 10
 # IncludeIsMainRegex: (Test)?$
 # IncludeIsMainSourceRegex: ""
-# IndentAccessModifiers: false
+IndentAccessModifiers: false
 # IndentCaseBlocks: false
 IndentCaseLabels: true
-# IndentExternBlock: AfterExternBlock
-# IndentGotoLabels: true
-# IndentPPDirectives: None
-# IndentRequiresClause: true
+IndentExternBlock: AfterExternBlock
+IndentGotoLabels: false
+IndentPPDirectives: None
+IndentRequiresClause: true
 IndentWidth: 4
 # IndentWrappedFunctionNames: false
-InsertBraces: true
-# InsertNewlineAtEOF: false
-# InsertTrailingCommas: None
+InsertBraces: false
+InsertNewlineAtEOF: true
+InsertTrailingCommas: None
 # IntegerLiteralSeparator:
 #   Binary: 0
 #   BinaryMinDigits: 0

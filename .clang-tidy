@@ -10,7 +10,7 @@ Checks:
   - modernize-use-default-member-init
   - modernize-use-nullptr
   - performance-move-const-arg
-  - readability-braces-around-statements
+#  - readability-braces-around-statements
   - readability-identifier-naming
   - readability-operators-representation
   - readability-redundant-member-init
