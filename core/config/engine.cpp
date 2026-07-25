@@ -296,6 +296,17 @@ bool Engine::is_accurate_breadcrumbs_enabled() const {
 }
 #endif
 
+#if defined(DEBUG_ENABLED) && defined(DEV_ENABLED)
+String Engine::get_godot_source_root() const
+{
+	return _godot_source_root;
+}
+void Engine::set_godot_source_root(const String &p_root)
+{
+	_godot_source_root = p_root;
+}
+#endif // DEBUG_ENABLED && DEV_ENABLED
+
 void Engine::set_print_to_stdout(bool p_enabled) {
 	CoreGlobals::print_line_enabled = p_enabled;
 }

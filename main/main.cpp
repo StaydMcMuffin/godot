@@ -1276,40 +1276,42 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			init_windowed = true;
 		} else if (arg == "--gpu-index") {
 			if (N) {
-				Engine::singleton->gpu_idx = N->get().to_int();
+				Engine::get_singleton()->gpu_idx = N->get().to_int();
 				N = N->next();
 			} else {
 				OS::get_singleton()->print("Missing GPU index argument, aborting.\n");
 				goto error;
 			}
 		} else if (arg == "--gpu-validation") {
-			Engine::singleton->use_validation_layers = true;
+			Engine::get_singleton()->use_validation_layers = true;
 #ifdef DEBUG_ENABLED
 		} else if (arg == "--gpu-abort") {
-			Engine::singleton->abort_on_gpu_errors = true;
-#endif
+			Engine::get_singleton()->abort_on_gpu_errors = true;
+#endif // DEBUG_ENABLED
 		} else if (arg == "--generate-spirv-debug-info") {
-			Engine::singleton->generate_spirv_debug_info = true;
+			Engine::get_singleton()->generate_spirv_debug_info = true;
 #if defined(DEBUG_ENABLED) || defined(DEV_ENABLED)
 		} else if (arg == "--extra-gpu-memory-tracking") {
-			Engine::singleton->extra_gpu_memory_tracking = true;
+			Engine::get_singleton()->extra_gpu_memory_tracking = true;
 		} else if (arg == "--accurate-breadcrumbs") {
-			Engine::singleton->accurate_breadcrumbs = true;
+			Engine::get_singleton()->accurate_breadcrumbs = true;
+#endif // DEBUG_ENABLED || DEV_ENABLED
+#if defined(DEBUG_ENABLED) && defined(DEV_ENABLED)
 		} else if (arg == "--source-root") {
-			if (N) {
-				Engine::singleton->_godot_source_root = N->get();
-				N = N->next();
-			} else {
+			if (!N) {
 				OS::get_singleton()->print("Missing path for source-root argument, aborting.\n");
 				goto error;
 			}
 			// Test the existence of a well-known file, to verify the path is valid.
-			String shader_path = Engine::singleton->_godot_source_root.path_join("SConstruct");
-			if (!FileAccess::exists(shader_path)) {
-				OS::get_singleton()->print("Invalid Godot source root path.");
-				goto error;
+			String shader_path = N->get();
+			if (FileAccess::exists(shader_path.path_join(String("SConstruct")))) {
+				Engine::get_singleton()->set_godot_source_root(shader_path);
+				OS::get_singleton()->print("Provided source-root path is valid, dynamic loading of core shaders is enabled.\n");
+			} else {
+				OS::get_singleton()->print("Godot source not found at provided source-root path, dynamic loading of core shaders disabled.\n");
 			}
-#endif
+			N = N->next();
+#endif // DEBUG_ENABLED && DEV_ENABLED
 		} else if (arg == "--tablet-driver") {
 			if (N) {
 				tablet_driver = N->get();

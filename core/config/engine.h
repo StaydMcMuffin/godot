@@ -80,8 +80,10 @@ private:
 	bool extra_gpu_memory_tracking = false;
 #if defined(DEBUG_ENABLED) || defined(DEV_ENABLED)
 	bool accurate_breadcrumbs = false;
+#endif  // DEBUG_ENABLED || DEV_ENABLED
+#if defined(DEBUG_ENABLED) && defined(DEV_ENABLED)
 	String _godot_source_root;
-#endif
+#endif // DEBUG_ENABLED && DEV_ENABLED
 	int32_t gpu_idx = -1;
 
 	uint64_t _process_frames = 0;
@@ -180,7 +182,7 @@ public:
 
 	_FORCE_INLINE_ void set_recovery_mode_hint(bool p_enabled) { recovery_mode_hint = p_enabled; }
 	_FORCE_INLINE_ bool is_recovery_mode_hint() const { return recovery_mode_hint; }
-#else
+#else // TOOLS_ENABLED
 	_FORCE_INLINE_ void set_editor_hint(bool p_enabled) {}
 	_FORCE_INLINE_ bool is_editor_hint() const { return false; }
 
@@ -192,7 +194,7 @@ public:
 
 	_FORCE_INLINE_ void set_recovery_mode_hint(bool p_enabled) {}
 	_FORCE_INLINE_ bool is_recovery_mode_hint() const { return false; }
-#endif
+#endif // TOOLS_ENABLED
 
 	Dictionary get_version_info() const;
 	Dictionary get_author_info() const;
@@ -215,10 +217,11 @@ public:
 	bool is_extra_gpu_memory_tracking_enabled() const;
 #if defined(DEBUG_ENABLED) || defined(DEV_ENABLED)
 	bool is_accurate_breadcrumbs_enabled() const;
-	const String &godot_source_root() const {
-		return _godot_source_root;
-	}
-#endif
+#endif // DEBUG_ENABLED || DEV_ENABLED
+#if defined(DEBUG_ENABLED) && defined(DEV_ENABLED)
+	void set_godot_source_root(const String &p_root);
+	String get_godot_source_root() const;
+#endif // DEBUG_ENABLED && DEV_ENABLED
 	int32_t get_gpu_index() const;
 
 	void increment_frames_drawn();

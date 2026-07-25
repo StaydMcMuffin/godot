@@ -785,41 +785,49 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		hvec3 binormal, hvec3 tangent, half anisotropy,
 #endif
 		inout hvec3 diffuse_light,
-		inout hvec3 specular_light) {
-
+		inout hvec3 specular_light
+)
+{
 	// Spot light attenuation.
 	vec3 light_rel_vec = spot_lights.data[idx].position - vertex;
 	float light_length = length(light_rel_vec);
 	hvec3 light_rel_vec_norm = hvec3(light_rel_vec / light_length);
 	half spot_attenuation = get_omni_attenuation(light_length, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation);
 	vec3 spot_dir = spot_lights.data[idx].direction;
-	
 	vec3 color = spot_lights.data[idx].color;
+
+	// Projector Texture //
 	if (sc_use_light_projector() && spot_lights.data[idx].projector_rect != vec4(0.0))
 	{
 		vec4 splane = (spot_lights.data[idx].shadow_matrix * vec4(vertex, 1.0));
 		splane /= splane.w;
 
-		vec2 proj_uv = splane.xy * spot_lights.data[idx].projector_rect.zw;
-
-		if (sc_projector_use_mipmaps())
+		if (splane.x <= 0.0 || splane.x >= 1.0 || splane.y <= 0.0 || splane.y >= 1.0)
 		{
-			//ensure we have proper mipmaps
-			vec4 splane_ddx = (spot_lights.data[idx].shadow_matrix * vec4(vertex + vertex_ddx, 1.0));
-			splane_ddx /= splane_ddx.w;
-			vec2 proj_uv_ddx = splane_ddx.xy * spot_lights.data[idx].projector_rect.zw - proj_uv;
-
-			vec4 splane_ddy = (spot_lights.data[idx].shadow_matrix * vec4(vertex + vertex_ddy, 1.0));
-			splane_ddy /= splane_ddy.w;
-			vec2 proj_uv_ddy = splane_ddy.xy * spot_lights.data[idx].projector_rect.zw - proj_uv;
-
-			vec4 proj = textureGrad(sampler2D(decal_atlas_srgb, light_projector_sampler), proj_uv + spot_lights.data[idx].projector_rect.xy, proj_uv_ddx, proj_uv_ddy);
-			color *= proj.rgb * proj.a;
+			spot_attenuation = 0.0;
 		}
 		else
 		{
-			vec4 proj = textureLod(sampler2D(decal_atlas_srgb, light_projector_sampler), proj_uv + spot_lights.data[idx].projector_rect.xy, 0.0);
-			color *= proj.rgb * proj.a;
+			vec2 proj_uv = clamp(splane.xy, vec2(0.0), vec2(1.0)) * spot_lights.data[idx].projector_rect.zw;
+			if (sc_projector_use_mipmaps())
+			{
+				//ensure we have proper mipmaps
+				vec4 splane_ddx = spot_lights.data[idx].shadow_matrix * vec4(vertex + vertex_ddx, 1.0);
+				splane_ddx /= splane_ddx.w;
+				vec2 proj_uv_ddx = splane_ddx.xy * spot_lights.data[idx].projector_rect.zw - proj_uv;
+
+				vec4 splane_ddy = spot_lights.data[idx].shadow_matrix * vec4(vertex + vertex_ddy, 1.0);
+				splane_ddy /= splane_ddy.w;
+				vec2 proj_uv_ddy = splane_ddy.xy * spot_lights.data[idx].projector_rect.zw - proj_uv;
+
+				vec4 proj = textureGrad(sampler2D(decal_atlas_srgb, light_projector_sampler), proj_uv + spot_lights.data[idx].projector_rect.xy, proj_uv_ddx, proj_uv_ddy);
+				color *= proj.rgb * proj.a;
+			}
+			else
+			{
+				vec4 proj = textureLod(sampler2D(decal_atlas_srgb, light_projector_sampler), proj_uv + spot_lights.data[idx].projector_rect.xy, 0.0);
+				color *= proj.rgb * proj.a;
+			}
 		}
 	}
 	else
@@ -956,7 +964,6 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 #ifdef LIGHT_ANISOTROPY_USED
 			binormal, tangent, anisotropy,
 #endif
-
 			diffuse_light, specular_light);
 }
 

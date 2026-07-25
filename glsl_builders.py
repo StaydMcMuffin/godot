@@ -194,7 +194,8 @@ def build_rd_header(filename: str, shader: str) -> None:
     class_name = os.path.basename(shader).replace(".glsl", "").title().replace("_", "").replace(".", "") + "ShaderRD"
 
     with generated_wrapper(filename) as file:
-        file.write(f"""\
+        file.write(
+f"""\
 #include "servers/rendering/renderer_rd/shader_rd.h"
 
 class {class_name} : public ShaderRD {{
@@ -214,30 +215,37 @@ public:
             file.write(build_rd_header_lines_for_raytracing_stage(header_data.closest_hit_lines, "closest_hit"))
             file.write(build_rd_header_lines_for_raytracing_stage(header_data.miss_lines, "miss"))
             file.write(build_rd_header_lines_for_raytracing_stage(header_data.intersection_lines, "intersection"))
-            file.write(f"""\
+            file.write(
+f"""\
 		setup_raytracing(_raygen_code, _any_hit_code, _closest_hit_code, _miss_code, _intersection_code, "{class_name}");
 """)
         elif header_data.compute_lines:
-            file.write(f"""\
+            file.write(
+f"""\
 		static const char *_vertex_code = nullptr;
 		static const char *_fragment_code = nullptr;
-		static const char _compute_code[] = {{
+		static const char _compute_code[] =
+        {{
 {to_raw_cstring(header_data.compute_lines)}
 		}};
 		setup(_vertex_code, _fragment_code, _compute_code, "{class_name}");
 """)
         else:
-            file.write(f"""\
-		static const char _vertex_code[] = {{
+            file.write(
+f"""\
+		static const char _vertex_code[] =
+        {{
 {to_raw_cstring(header_data.vertex_lines)}
 		}};
-		static const char _fragment_code[] = {{
+		static const char _fragment_code[] =
+        {{
 {to_raw_cstring(header_data.fragment_lines)}
 		}};
 		static const char *_compute_code = nullptr;
 		setup(_vertex_code, _fragment_code, _compute_code, "{class_name}");
 """)
-        file.write(f"""\
+        file.write(
+f"""\
 	}}
 
 protected:
