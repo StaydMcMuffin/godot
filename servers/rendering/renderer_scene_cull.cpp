@@ -2372,17 +2372,21 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 	bool animated_material_found = false;
 
-	switch (RSG::light_storage->light_get_type(p_instance->base)) {
-		case RSE::LIGHT_DIRECTIONAL: {
-		} break;
-		case RSE::LIGHT_OMNI: {
+	switch (RSG::light_storage->light_get_type(p_instance->base))
+	{
+		case RSE::LIGHT_DIRECTIONAL:
+		{} break;
+		case RSE::LIGHT_OMNI:
+		{
 			RSE::LightOmniShadowMode shadow_mode = RSG::light_storage->light_omni_get_shadow_mode(p_instance->base);
 
-			if (shadow_mode == RSE::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID || !RSG::light_storage->light_instances_can_render_shadow_cube()) {
-				if (max_shadows_used + 2 > MAX_UPDATE_SHADOWS) {
+			if (shadow_mode == RSE::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID || !RSG::light_storage->light_instances_can_render_shadow_cube())
+			{
+				if (max_shadows_used + 2 > MAX_UPDATE_SHADOWS)
 					return true;
-				}
-				for (int i = 0; i < 2; i++) {
+
+				for (int i = 0; i < 2; i++)
+				{
 					//using this one ensures that raster deferred will have it
 					RENDER_TIMESTAMP("Cull OmniLight3D Shadow Paraboloid, Half " + itos(i));
 
@@ -2446,18 +2450,19 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
 				}
-			} else { //shadow cube
-
-				if (max_shadows_used + 6 > MAX_UPDATE_SHADOWS) {
+			}
+			else
+			{ //shadow cube
+				if (max_shadows_used + 6 > MAX_UPDATE_SHADOWS)
 					return true;
-				}
 
 				real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
 				real_t z_near = MIN(0.025f, radius);
 				Projection cm;
 				cm.set_perspective(90, 1, z_near, radius);
 
-				for (int i = 0; i < 6; i++) {
+				for (int i = 0; i < 6; i++)
+				{
 					RENDER_TIMESTAMP("Cull OmniLight3D Shadow Cube, Side " + itos(i));
 					//using this one ensures that raster deferred will have it
 
@@ -2535,12 +2540,12 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			}
 
 		} break;
-		case RSE::LIGHT_SPOT: {
-			RENDER_TIMESTAMP("Cull SpotLight3D Shadow");
-
-			if (max_shadows_used + 1 > MAX_UPDATE_SHADOWS) {
+		case RSE::LIGHT_SPOT:
+		{
+			if (max_shadows_used + 1 > MAX_UPDATE_SHADOWS)
 				return true;
-			}
+
+			RENDER_TIMESTAMP("Cull SpotLight3D Shadow");
 
 			real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
 			real_t angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
@@ -2599,10 +2604,11 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			shadow_data.pass = 0;
 
 		} break;
-		case RSE::LIGHT_AREA: {
-			if (max_shadows_used + 1 > MAX_UPDATE_SHADOWS) {
+		case RSE::LIGHT_AREA:
+		{
+			if (max_shadows_used + 1 > MAX_UPDATE_SHADOWS)
 				return true;
-			}
+
 			RENDER_TIMESTAMP("Cull AreaLight3D Shadow Paraboloid");
 
 			real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
@@ -2669,49 +2675,6 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 	}
 
 	return animated_material_found;
-}
-
-void RendererSceneCull::_light_instance_update_proj(Instance *p_instance)
-{
-	InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
-	RID instance_rid = light->instance;
-
-	Transform3D light_transform = p_instance->transform.orthonormalized();
-	real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
-
-	switch (RSG::light_storage->light_get_type(p_instance->base))
-	{
-		case RSE::LIGHT_OMNI:
-		{
-			RSE::LightOmniShadowMode shadow_mode = RSG::light_storage->light_omni_get_shadow_mode(p_instance->base);
-			if (true || shadow_mode == RSE::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID || !RSG::light_storage->light_instances_can_render_shadow_cube())
-			{
-				RSG::light_storage->light_instance_set_shadow_transform(instance_rid, Projection(), light_transform, radius, 0, 0, 0);
-			}
-			else
-			{
-				Projection cm;
-				cm.set_perspective(90.0, 1.0, MIN(0.025f, radius), radius);
-
-				Transform3D xform = light_transform * Transform3D().looking_at(Vector3::RIGHT, Vector3::DOWN);
-				RSG::light_storage->light_instance_set_shadow_transform(instance_rid, cm, xform, radius, 0, 0, 0);
-			}
-		} break;
-		case RSE::LIGHT_SPOT:
-		{
-			real_t angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
-
-			Projection cm;
-			cm.set_perspective(angle * 2.0, 1.0, MIN(0.025f, radius), radius);
-
-			RSG::light_storage->light_instance_set_shadow_transform(instance_rid, cm, light_transform, radius, 0, 0, 0);
-		} break;
-		case RSE::LIGHT_AREA:
-		{
-			RSG::light_storage->light_instance_set_shadow_transform(instance_rid, Projection(), light_transform, radius, 0, 0, 0);
-		}
-		default: break;
-	}
 }
 
 void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_screen_mesh_lod_threshold, RID p_shadow_atlas, Ref<XRInterface> &p_xr_interface, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info) {
@@ -3686,9 +3649,6 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			}
 			else
 			{
-				if (light->uses_projector)
-					_light_instance_update_proj(ins);
-
 				if (redraw)
 					light->make_shadow_dirty();
 			}
