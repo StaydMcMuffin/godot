@@ -227,7 +227,7 @@ void Light3D::set_projector(const Ref<Texture2D> &p_texture) {
 #endif
 
 	RS::get_singleton()->light_set_projector(light, tex_id);
-	update_configuration_warnings();
+	projector_enabled = tex_id.is_valid();
 }
 
 Ref<Texture2D> Light3D::get_projector() const {
