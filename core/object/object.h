@@ -49,8 +49,12 @@
 #define ADD_PROPERTY_DEFAULT(m_property, m_default) ::ClassDB::set_property_default_value(get_class_static(), m_property, m_default)
 #define ADD_GROUP(m_name, m_prefix) ::ClassDB::add_property_group(get_class_static(), m_name, m_prefix)
 #define ADD_GROUP_INDENT(m_name, m_prefix, m_depth) ::ClassDB::add_property_group(get_class_static(), m_name, m_prefix, m_depth)
+#define ADD_GROUP_NOFOLD(m_name, m_prefix) ::ClassDB::add_property_group(get_class_static(), m_name, m_prefix, 0, false)
+#define ADD_GROUP_INDENT_NOFOLD(m_name, m_prefix) ::ClassDB::add_property_group(get_class_static(), m_name, m_prefix, m_depth, false)
 #define ADD_SUBGROUP(m_name, m_prefix) ::ClassDB::add_property_subgroup(get_class_static(), m_name, m_prefix)
 #define ADD_SUBGROUP_INDENT(m_name, m_prefix, m_depth) ::ClassDB::add_property_subgroup(get_class_static(), m_name, m_prefix, m_depth)
+#define ADD_SUBGROUP_NOFOLD(m_name, m_prefix) ::ClassDB::add_property_group(get_class_static(), m_name, m_prefix, 0, false)
+#define ADD_SUBGROUP_INDENT_NOFOLD(m_name, m_prefix) ::ClassDB::add_property_group(get_class_static(), m_name, m_prefix, m_depth, false)
 #define ADD_LINKED_PROPERTY(m_property, m_linked_property) ::ClassDB::add_linked_property(get_class_static(), m_property, m_linked_property)
 
 #ifdef TOOLS_ENABLED

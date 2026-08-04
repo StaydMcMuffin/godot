@@ -2435,7 +2435,7 @@ void EditorInspectorSection::_notification(int p_what) {
 				String num_revertable_str;
 				int num_revertable_width = 0;
 
-				bool folded = (foldable || !checkbox_only) && !vbox->is_visible();
+				const bool folded = (foldable || !checkbox_only) && !vbox->is_visible();
 				if (folded && revertable_properties.size()) {
 					int label_width = theme_cache.bold_font->get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, available, theme_cache.bold_font_size, TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_CONSTRAIN_ELLIPSIS).x;
 
@@ -2470,6 +2470,15 @@ void EditorInspectorSection::_notification(int p_what) {
 				const Color string_color = header_hover ? theme_cache.font_hover_mono_color : font_color;
 				HorizontalAlignment text_align = rtl ? HORIZONTAL_ALIGNMENT_RIGHT : HORIZONTAL_ALIGNMENT_LEFT;
 				draw_string(font, text_offset, label, text_align, available, font_size, string_color, TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_CONSTRAIN_ELLIPSIS);
+
+				// Separator Line //
+				if (!(folded || checkbox_only))
+				{
+					const Color separator_color = theme_cache.font_disabled_color * Color(1, 1, 1, 0.25);
+					Point2 from = Point2(text_offset.x + outer_margin + theme_cache.padding_size * 2 + font->get_string_size(label, text_align, -1.0f, font_size, TextServer::TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_CONSTRAIN_ELLIPSIS).x, (header_height / 2) + 1).round();
+					Point2 to = Point2(get_size().width - (margin_end + theme_cache.padding_size), from.y).round();
+					draw_line(from, to, separator_color);
+				}
 			}
 
 			// Draw section indentation.
@@ -4446,6 +4455,7 @@ void EditorInspector::update_tree() {
 	EditorInspectorSection *group_togglable_property = nullptr;
 	String subgroup;
 	String subgroup_base;
+	bool foldable_group = false;
 	EditorInspectorSection *subgroup_togglable_property = nullptr;
 	int section_depth = 0;
 	bool disable_favorite = false;
@@ -4477,42 +4487,56 @@ void EditorInspector::update_tree() {
 	StringName doc_name;
 
 	// Get the lists of editors for properties.
-	for (List<PropertyInfo>::Element *E_property = plist.front(); E_property; E_property = E_property->next()) {
+	for (List<PropertyInfo>::Element *E_property = plist.front(); E_property; E_property = E_property->next())
+	{
 		PropertyInfo &p = E_property->get();
 
-		if (p.usage & PROPERTY_USAGE_SUBGROUP) {
+		if (p.usage & PROPERTY_USAGE_SUBGROUP)
+		{
 			// Setup a property sub-group.
 			subgroup = p.name;
 			subgroup_togglable_property = nullptr;
 
+			foldable_group = use_folding;
+
 			subgroup_base = p.hint_string.get_slicec(',', 0);
-			if (p.hint_string.get_slice_count(",") > 1) {
+			if (p.hint_string.get_slice_count(",") > 1)
+			{
 				section_depth = p.hint_string.get_slicec(',', 1).to_int();
-			} else {
-				section_depth = 0;
+				if (p.hint_string.get_slice_count(",") > 2)
+					foldable_group = use_folding && p.hint_string.get_slicec(',', 2) != "false";
 			}
+			else
+				section_depth = 0;
 
 			continue;
-
-		} else if (p.usage & PROPERTY_USAGE_GROUP) {
+		}
+		else if (p.usage & PROPERTY_USAGE_GROUP)
+		{
 			// Setup a property group.
 			group = p.name;
 			group_togglable_property = nullptr;
 
+			foldable_group = use_folding;
+
 			group_base = p.hint_string.get_slicec(',', 0);
-			if (p.hint_string.get_slice_count(",") > 1) {
+			if (p.hint_string.get_slice_count(",") > 1)
+			{
 				section_depth = p.hint_string.get_slicec(',', 1).to_int();
-			} else {
-				section_depth = 0;
+				if (p.hint_string.get_slice_count(",") > 2)
+					foldable_group = use_folding && p.hint_string.get_slicec(',', 2) != "false";
 			}
+			else
+				section_depth = 0;
 
 			subgroup = "";
 			subgroup_base = "";
 			subgroup_togglable_property = nullptr;
 
 			continue;
-
-		} else if (p.usage & PROPERTY_USAGE_CATEGORY) {
+		}
+		else if (p.usage & PROPERTY_USAGE_CATEGORY)
+		{
 			// Setup a property category.
 			group = "";
 			group_base = "";
@@ -4522,6 +4546,8 @@ void EditorInspector::update_tree() {
 			subgroup_togglable_property = nullptr;
 			section_depth = 0;
 			disable_favorite = false;
+
+			foldable_group = use_folding;
 
 			vbox_per_path.clear();
 			editor_inspector_array_per_prefix.clear();
@@ -4533,58 +4559,60 @@ void EditorInspector::update_tree() {
 			// Iterate over remaining properties. If no properties in category, skip the category.
 			List<PropertyInfo>::Element *N = E_property->next();
 			bool valid = true;
-			while (N) {
+			while (N)
+			{
 				if (!N->get().name.begins_with("metadata/_") && N->get().usage & PROPERTY_USAGE_EDITOR &&
-						(!filter.is_empty() || !restrict_to_basic || (N->get().usage & PROPERTY_USAGE_EDITOR_BASIC_SETTING))) {
+						(!filter.is_empty() || !restrict_to_basic || (N->get().usage & PROPERTY_USAGE_EDITOR_BASIC_SETTING)))
+				{
 					break;
 				}
 				// Treat custom categories as second-level ones. Do not skip a normal category if it is followed by a custom one.
 				// Skip in the other 3 cases (normal -> normal, custom -> custom, custom -> normal).
-				if ((N->get().usage & PROPERTY_USAGE_CATEGORY) && (is_custom_category || !N->get().hint_string.is_empty())) {
+				if ((N->get().usage & PROPERTY_USAGE_CATEGORY) && (is_custom_category || !N->get().hint_string.is_empty()))
+				{
 					valid = false;
 					break;
 				}
 				N = N->next();
 			}
-			if (!valid) {
-				continue; // Empty, ignore it.
-			}
+			if (!valid)
+				continue;  // Empty, ignore it.
 
 			String category_tooltip;
-
-			// Do not add an icon, do not change the current class (`doc_name`) for custom categories.
-			if (is_custom_category) {
-				category_tooltip = p.name;
-			} else {
+			if (!is_custom_category)
+			{
 				doc_name = p.name;
 
 				// Use category's owner script to update some of its information.
-				if (!EditorNode::get_editor_data().is_type_recognized(p.name) && ResourceLoader::exists(p.hint_string, "Script")) {
+				if (!EditorNode::get_editor_data().is_type_recognized(p.name) && ResourceLoader::exists(p.hint_string, "Script"))
+				{
 					Ref<Script> scr = ResourceLoader::load(p.hint_string, "Script");
-					if (scr.is_valid()) {
+					if (scr.is_valid())
+					{
 						doc_name = scr->get_doc_class_name();
 
 						// Property favorites aren't compatible with built-in scripts.
-						if (scr->is_built_in()) {
+						if (scr->is_built_in())
 							disable_favorite = true;
-						}
 					}
 				}
 
-				if (use_doc_hints) {
+				if (use_doc_hints)
 					// `|` separators used in `EditorHelpBit`.
 					category_tooltip = "class|" + doc_name + "|";
-				}
 			}
+			else
+				category_tooltip = p.name;  // Don't add an icon or change the current class (`doc_name`) for custom categories.
 
-			if ((is_custom_category && !show_custom_categories) || (!is_custom_category && !show_standard_categories)) {
+			if ((is_custom_category && !show_custom_categories) || (!is_custom_category && !show_standard_categories))
 				continue;
-			}
 
 			// Hide the "MultiNodeEdit" category for MultiNodeEdit.
-			if (Object::cast_to<MultiNodeEdit>(object) && p.name == "MultiNodeEdit") {
+			if (Object::cast_to<MultiNodeEdit>(object) && p.name == "MultiNodeEdit")
 				continue;
-			}
+
+			if (ClassDB::is_virtual(doc_name) || ClassDB::is_abstract(doc_name))
+				continue;
 
 			// Create an EditorInspectorCategory and add it to the inspector.
 			EditorInspectorCategory *category = memnew(EditorInspectorCategory);
@@ -4595,43 +4623,34 @@ void EditorInspector::update_tree() {
 
 			// Set the category info.
 			category->set_tooltip_text(category_tooltip);
-			if (!is_custom_category) {
+			if (!is_custom_category)
 				category->set_doc_class_name(doc_name);
-			}
 
 			// Add editors at the start of a category.
-			for (Ref<EditorInspectorPlugin> &ped : valid_plugins) {
+			for (Ref<EditorInspectorPlugin> &ped : valid_plugins)
+			{
 				ped->parse_category(object, p.name);
 				_parse_added_editors(main_vbox, nullptr, ped);
 			}
 
 			continue;
-
-		} else if (p.name.begins_with("metadata/_") || !(p.usage & PROPERTY_USAGE_EDITOR) || _is_property_disabled_by_feature_profile(p.name) ||
-				(filter.is_empty() && restrict_to_basic && !(p.usage & PROPERTY_USAGE_EDITOR_BASIC_SETTING))) {
-			// Ignore properties that are not supposed to be in the inspector.
-			continue;
 		}
 
-		if (p.name == "script") {
-			// Script should go into its own category.
-			category_vbox = nullptr;
-		}
+		if (p.name.begins_with("metadata/_") || !(p.usage & PROPERTY_USAGE_EDITOR) || _is_property_disabled_by_feature_profile(p.name) ||
+				(filter.is_empty() && restrict_to_basic && !(p.usage & PROPERTY_USAGE_EDITOR_BASIC_SETTING)))	
+			continue;  // Ignore properties that are not supposed to be in the inspector.
 
-		if (p.usage & PROPERTY_USAGE_HIGH_END_GFX && RS::get_singleton()->is_low_end()) {
-			// Do not show this property in low end gfx.
-			continue;
-		}
+		if (p.name == "script")
+			category_vbox = nullptr;  // Script should go into its own category.
 
-		if (p.name == "script" && (hide_script || bool(object->call("_hide_script_from_inspector")))) {
-			// Hide script variables from inspector if required.
-			continue;
-		}
+		if (p.usage & PROPERTY_USAGE_HIGH_END_GFX && RS::get_singleton()->is_low_end())
+			continue;  // Do not show this property in low end gfx.
 
-		if (p.name.begins_with("metadata/") && bool(object->call(SNAME("_hide_metadata_from_inspector")))) {
-			// Hide metadata from inspector if required.
-			continue;
-		}
+		if (p.name == "script" && (hide_script || bool(object->call("_hide_script_from_inspector"))))
+			continue;  // Hide script variables from inspector if required.
+
+		if (p.name.begins_with("metadata/") && bool(object->call(SNAME("_hide_metadata_from_inspector"))))
+			continue;  // Hide metadata from inspector if required.
 
 		// Get the path for property.
 		String path = p.name;
@@ -4639,76 +4658,91 @@ void EditorInspector::update_tree() {
 		// First check if we have an array that fits the prefix.
 		String array_prefix = "";
 		int array_index = -1;
-		for (KeyValue<String, EditorInspectorArray *> &E : editor_inspector_array_per_prefix) {
-			if (p.name.begins_with(E.key) && E.key.length() > array_prefix.length()) {
+		for (KeyValue<String, EditorInspectorArray *> &E : editor_inspector_array_per_prefix)
+		{
+			if (p.name.begins_with(E.key) && E.key.length() > array_prefix.length())
 				array_prefix = E.key;
-			}
 		}
 
-		if (!array_prefix.is_empty()) {
+		if (!array_prefix.is_empty())
+		{
 			// If we have an array element, find the according index in array.
 			String str = p.name.trim_prefix(array_prefix);
 			int to_char_index = 0;
-			while (to_char_index < str.length()) {
-				if (!is_digit(str[to_char_index])) {
+			while (to_char_index < str.length())
+			{
+				if (!is_digit(str[to_char_index]))
 					break;
-				}
+
 				to_char_index++;
 			}
-			if (to_char_index > 0) {
+			if (to_char_index > 0)
 				array_index = str.left(to_char_index).to_int();
-			} else {
+			else
 				array_prefix = "";
-			}
 		}
 
 		// Don't allow to favorite array items.
-		if (!disable_favorite) {
+		if (!disable_favorite)
 			disable_favorite = !array_prefix.is_empty();
-		}
 
-		if (!array_prefix.is_empty()) {
+		if (!array_prefix.is_empty())
+		{
 			path = path.trim_prefix(array_prefix);
 			int char_index = path.find_char('/');
-			if (char_index >= 0) {
+			if (char_index >= 0)
 				path = path.right(-char_index - 1);
-			} else {
+			else
 				path = vformat(TTR("Element %s"), array_index);
-			}
-		} else {
+		}
+		else
+		{
 			// Check if we exit or not a subgroup. If there is a prefix, remove it from the property label string.
-			if (!subgroup.is_empty() && !subgroup_base.is_empty()) {
-				if (path.begins_with(subgroup_base)) {
+			if (!subgroup.is_empty() && !subgroup_base.is_empty())
+			{
+				if (path.begins_with(subgroup_base))
+				{
 					path = path.trim_prefix(subgroup_base);
-				} else if (subgroup_base.begins_with(path)) {
+				}
+				else if (subgroup_base.begins_with(path))
+				{
 					// Keep it, this is used pretty often.
-				} else {
+				}
+				else
+				{
 					subgroup = ""; // The prefix changed, we are no longer in the subgroup.
 					subgroup_togglable_property = nullptr;
+					foldable_group = use_folding;
 				}
 			}
 
 			// Check if we exit or not a group. If there is a prefix, remove it from the property label string.
-			if (!group.is_empty() && !group_base.is_empty() && subgroup.is_empty()) {
-				if (path.begins_with(group_base)) {
+			if (!group.is_empty() && !group_base.is_empty() && subgroup.is_empty())
+			{
+				if (path.begins_with(group_base))
+				{
 					path = path.trim_prefix(group_base);
-				} else if (group_base.begins_with(path)) {
+				}
+				else if (group_base.begins_with(path))
+				{
 					// Keep it, this is used pretty often.
-				} else {
+				}
+				else
+				{
 					group = ""; // The prefix changed, we are no longer in the group.
 					group_togglable_property = nullptr;
 					subgroup = "";
 					subgroup_togglable_property = nullptr;
+					foldable_group = use_folding;
 				}
 			}
 
 			// Add the group and subgroup to the path.
-			if (!subgroup.is_empty()) {
+			if (!subgroup.is_empty())
 				path = subgroup + "/" + path;
-			}
-			if (!group.is_empty()) {
+			
+			if (!group.is_empty())
 				path = group + "/" + path;
-			}
 		}
 
 		// Get the property label's string.
@@ -4744,29 +4778,29 @@ void EditorInspector::update_tree() {
 
 		// Ignore properties that do not fit the filter.
 		bool sub_inspector_use_filter = false;
-		if (use_filter && !filter.is_empty()) {
+		if (use_filter && !filter.is_empty())
+		{
 			const String property_path = property_prefix + (path.is_empty() ? "" : path + "/") + name_override;
-			if (!_property_path_matches(property_path, filter, property_name_style)) {
-				if (!sub_inspectors_enabled || p.hint != PROPERTY_HINT_RESOURCE_TYPE) {
+			if (!_property_path_matches(property_path, filter, property_name_style))
+			{
+				if (!sub_inspectors_enabled || p.hint != PROPERTY_HINT_RESOURCE_TYPE)
 					continue;
-				}
 
 				Ref<Resource> res = object->get(p.name);
-				if (res.is_null()) {
+				if (res.is_null())
 					continue;
-				}
 
 				// Check if the sub-resource has any properties that match the filter.
-				if (!_resource_properties_matches(res, filter)) {
+				if (!_resource_properties_matches(res, filter))
 					continue;
-				}
 
 				sub_inspector_use_filter = true;
 			}
 		}
 
 		// Recreate the category vbox if it was reset.
-		if (category_vbox == nullptr) {
+		if (category_vbox == nullptr)
+		{
 			category_vbox = memnew(VBoxContainer);
 			category_vbox->set_theme_type_variation(SNAME("EditorPropertyContainer"));
 			category_vbox->hide();
@@ -4775,12 +4809,13 @@ void EditorInspector::update_tree() {
 
 		// Find the correct section/vbox to add the property editor to.
 		VBoxContainer *root_vbox = array_prefix.is_empty() ? category_vbox : editor_inspector_array_per_prefix[array_prefix]->get_vbox(array_index);
-		if (!root_vbox) {
+		if (!root_vbox)
 			continue;
-		}
+		
 		category_vbox->show();
 
-		if (!vbox_per_path.has(root_vbox)) {
+		if (!vbox_per_path.has(root_vbox))
+		{
 			vbox_per_path[root_vbox] = HashMap<String, VBoxContainer *>();
 			vbox_per_path[root_vbox][""] = root_vbox;
 		}
@@ -4790,11 +4825,13 @@ void EditorInspector::update_tree() {
 		int level = 1;
 
 		Vector<String> components = path.split("/");
-		for (int i = 0; i < components.size(); i++) {
+		for (int i = 0; i < components.size(); i++)
+		{
 			const String &component = components[i];
 			acc_path += (i > 0) ? "/" + component : component;
 
-			if (!vbox_per_path[root_vbox].has(acc_path)) {
+			if (!vbox_per_path[root_vbox].has(acc_path))
+			{
 				// If the section does not exists, create it.
 				EditorInspectorSection *section = memnew(EditorInspectorSection);
 				get_root_inspector()->get_v_scroll_bar()->connect(SceneStringName(value_changed), callable_mp(section, &EditorInspectorSection::reset_timer).unbind(1));
@@ -4806,34 +4843,40 @@ void EditorInspector::update_tree() {
 
 				// Don't localize groups for script variables.
 				EditorPropertyNameProcessor::Style section_name_style = property_name_style;
-				if ((p.usage & PROPERTY_USAGE_SCRIPT_VARIABLE) && section_name_style == EditorPropertyNameProcessor::STYLE_LOCALIZED) {
+				if ((p.usage & PROPERTY_USAGE_SCRIPT_VARIABLE) && section_name_style == EditorPropertyNameProcessor::STYLE_LOCALIZED)
 					section_name_style = EditorPropertyNameProcessor::STYLE_CAPITALIZED;
-				}
 
 				// Only process group label if this is not the group or subgroup.
-				if ((i == 0 && component == group) || (i == 1 && component == subgroup)) {
-					if (section_name_style == EditorPropertyNameProcessor::STYLE_LOCALIZED) {
+				if ((i == 0 && component == group) || (i == 1 && component == subgroup))
+				{
+					if (section_name_style == EditorPropertyNameProcessor::STYLE_LOCALIZED)
+					{
 						label = EditorPropertyNameProcessor::get_singleton()->translate_group_name(component);
 						tooltip = component;
-					} else {
+					}
+					else
+					{
 						label = component;
 						tooltip = EditorPropertyNameProcessor::get_singleton()->translate_group_name(component);
 					}
-				} else {
+				}
+				else
+				{
 					label = EditorPropertyNameProcessor::get_singleton()->process_name(component, section_name_style, p.name, doc_name);
 					tooltip = EditorPropertyNameProcessor::get_singleton()->process_name(component, EditorPropertyNameProcessor::get_tooltip_style(section_name_style), p.name, doc_name);
 				}
 
 				Color c = sscolor;
 				c.a /= level;
-				section->setup(acc_path, label, object, c, use_folding, section_depth, level);
+				section->setup(acc_path, label, object, c, foldable_group, section_depth, level);
 				section->set_tooltip_text(tooltip);
 
 				section->connect("section_toggled_by_user", callable_mp(this, &EditorInspector::_section_toggled_by_user));
 				section->connect("property_keyed", callable_mp(this, &EditorInspector::_property_keyed));
 
 				// Add editors at the start of a group.
-				for (Ref<EditorInspectorPlugin> &ped : valid_plugins) {
+				for (Ref<EditorInspectorPlugin> &ped : valid_plugins)
+				{
 					ped->parse_group(object, path);
 					_parse_added_editors(section->get_vbox(), section, ped);
 				}
@@ -4864,7 +4907,7 @@ void EditorInspector::update_tree() {
 			bool movable = true;
 			bool is_const = false;
 			bool numbered = false;
-			bool foldable = use_folding;
+			bool foldable = foldable_group;
 			String add_button_text = TTRC("Add Element");
 			String swap_method;
 			for (int i = (p.type == Variant::NIL ? 1 : 2); i < class_name_components.size(); i++) {
@@ -4893,7 +4936,7 @@ void EditorInspector::update_tree() {
 				String array_label = path.contains_char('/') ? path.substr(path.rfind_char('/') + 1) : path;
 				array_label = EditorPropertyNameProcessor::get_singleton()->process_name(property_label_string, property_name_style, p.name, doc_name);
 				int page = per_array_page.has(array_element_prefix) ? per_array_page[array_element_prefix] : 0;
-				editor_inspector_array->setup_with_move_element_function(object, p.hint_string, array_label, array_element_prefix, page, c, use_folding);
+				editor_inspector_array->setup_with_move_element_function(object, p.hint_string, array_label, array_element_prefix, page, c, foldable_group);
 				editor_inspector_array->connect("page_change_request", callable_mp(this, &EditorInspector::_page_change_request).bind(array_element_prefix));
 			} else if (p.type == Variant::INT) {
 				// Setup the array to use the count property and built-in functions to create/move/delete elements.
@@ -5127,6 +5170,7 @@ void EditorInspector::update_tree() {
 				}
 
 				_apply_property_editor_flags(ep, sub_inspector_use_filter, disable_favorite, property_read_only, all_read_only, checkable, checked, draw_warning);
+				ep->set_use_folding(foldable_group);
 			}
 
 			if (ep && ep->is_favoritable() && current_favorites.has(p.name)) {

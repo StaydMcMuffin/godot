@@ -1381,28 +1381,30 @@ bool ClassDB::get_signal(const StringName &p_class, const StringName &p_signal, 
 	return false;
 }
 
-void ClassDB::add_property_group(const StringName &p_class, const String &p_name, const String &p_prefix, int p_indent_depth) {
+void ClassDB::add_property_group(const StringName &p_class, const String &p_name, const String &p_prefix, int p_indent_depth, bool p_foldable)
+{
 	Locker::Lock lock(Locker::STATE_WRITE);
 	ClassInfo *type = classes.getptr(p_class);
 	ERR_FAIL_NO_CLASS(type, p_class);
 
 	String prefix = p_prefix;
-	if (p_indent_depth > 0) {
-		prefix = vformat("%s,%d", p_prefix, p_indent_depth);
-	}
+	prefix = vformat("%s,%d", p_prefix, p_indent_depth);
+	if (!p_foldable)
+		prefix = vformat("%s,%s", prefix, "false");
 
 	type->property_list.push_back(PropertyInfo(Variant::NIL, p_name, PROPERTY_HINT_NONE, prefix, PROPERTY_USAGE_GROUP));
 }
 
-void ClassDB::add_property_subgroup(const StringName &p_class, const String &p_name, const String &p_prefix, int p_indent_depth) {
+void ClassDB::add_property_subgroup(const StringName &p_class, const String &p_name, const String &p_prefix, int p_indent_depth, bool p_foldable)
+{
 	Locker::Lock lock(Locker::STATE_WRITE);
 	ClassInfo *type = classes.getptr(p_class);
 	ERR_FAIL_NO_CLASS(type, p_class);
 
 	String prefix = p_prefix;
-	if (p_indent_depth > 0) {
-		prefix = vformat("%s,%d", p_prefix, p_indent_depth);
-	}
+	prefix = vformat("%s,%d", p_prefix, p_indent_depth);
+	if (!p_foldable)
+		prefix = vformat("%s,%s", prefix, "false");
 
 	type->property_list.push_back(PropertyInfo(Variant::NIL, p_name, PROPERTY_HINT_NONE, prefix, PROPERTY_USAGE_SUBGROUP));
 }
