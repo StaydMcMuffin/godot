@@ -93,6 +93,9 @@ class ScriptTextEditor : public CodeEditorBase {
 	Color warning_line_color = Color(1, 1, 1);
 	Color folded_code_region_color = Color(1, 1, 1);
 
+	Color warning_underline_color = Color(1, 1, 1);
+	Color error_underline_color = Color(1, 1, 1);
+
 	PopupPanel *color_panel = nullptr;
 	ColorPicker *color_picker = nullptr;
 	Vector3i color_position;
@@ -135,6 +138,7 @@ class ScriptTextEditor : public CodeEditorBase {
 		EditMenusScTE(ScriptEditor *p_se);
 	};
 
+	void _script_res_changed();
 	void _enable_code_editor();
 
 	struct DraggedExport {
@@ -207,6 +211,8 @@ protected:
 
 public:
 	void _update_connected_methods();
+
+	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
 
 	virtual void apply_code() override;
 	virtual void set_edited_resource(const Ref<Resource> &p_res) override;

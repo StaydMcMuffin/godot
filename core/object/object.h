@@ -346,6 +346,12 @@ private:
 class ClassDB;
 class ScriptInstance;
 
+/**
+ * Base class for all OBJECT Variant types.
+ *
+ * For documentation, see:
+ * https://docs.godotengine.org/en/latest/engine_details/architecture/object_class.html
+ */
 class Object {
 public:
 	typedef Object self_type;
@@ -448,7 +454,6 @@ private:
 #endif
 	ScriptInstance *script_instance = nullptr;
 	HashMap<StringName, Variant> metadata;
-	HashMap<StringName, Variant *> metadata_properties;
 	mutable const GDType *_gdtype_ptr = nullptr;
 	void _reset_gdtype() const;
 

@@ -2417,7 +2417,7 @@ void Node3DEditor::_update_theme() {
 void Node3DEditor::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_TRANSLATION_CHANGED: {
-			const String show_list_tooltip = TTR("Alt+RMB: Show list of all nodes at position clicked, including locked.");
+			const String show_list_tooltip = vformat(TTR("%s+RMB: Show list of all nodes at position clicked, including locked."), keycode_get_string((Key)KeyModifierMask::ALT));
 			tool_button[TOOL_MODE_TRANSFORM]->set_tooltip_text(vformat(TTR("%s+Drag: Rotate selected node around pivot."), keycode_get_string((Key)KeyModifierMask::CMD_OR_CTRL)) + "\n" + show_list_tooltip);
 			tool_button[TOOL_MODE_MOVE]->set_tooltip_text(vformat(TTR("%s+Drag: Use snap."), keycode_get_string((Key)KeyModifierMask::CMD_OR_CTRL)) + "\n" + show_list_tooltip);
 			tool_button[TOOL_MODE_ROTATE]->set_tooltip_text(vformat(TTR("%s+Drag: Use snap."), keycode_get_string((Key)KeyModifierMask::CMD_OR_CTRL)) + "\n" + show_list_tooltip);
@@ -2456,6 +2456,14 @@ void Node3DEditor::_notification(int p_what) {
 
 		case NOTIFICATION_EXIT_TREE: {
 			_finish_indicators();
+		} break;
+
+		case NOTIFICATION_PROCESS: {
+			if (gizmo_bvh_needs_optimization) {
+				// Only call this once per frame and only call when dirty. This is very expensive.
+				gizmo_bvh.optimize_incremental(1);
+				gizmo_bvh_needs_optimization = false;
+			}
 		} break;
 
 		case NOTIFICATION_THEME_CHANGED: {
@@ -3302,7 +3310,7 @@ Node3DEditor::Node3DEditor() {
 	tool_button[TOOL_MODE_LIST_SELECT]->set_toggle_mode(true);
 	tool_button[TOOL_MODE_LIST_SELECT]->set_theme_type_variation(SceneStringName(FlatButton));
 	tool_button[TOOL_MODE_LIST_SELECT]->connect(SceneStringName(pressed), callable_mp(this, &Node3DEditor::_menu_item_pressed).bind(MENU_TOOL_LIST_SELECT));
-	tool_button[TOOL_MODE_LIST_SELECT]->set_tooltip_text(TTR("Show list of selectable nodes at position clicked.") + "\n" + TTR("Alt+RMB: Show list of all nodes at position clicked, including locked."));
+	tool_button[TOOL_MODE_LIST_SELECT]->set_tooltip_text(TTR("Show list of selectable nodes at position clicked.") + "\n" + vformat(TTR("%s+RMB: Show list of all nodes at position clicked, including locked."), keycode_get_string((Key)KeyModifierMask::ALT)));
 	tool_button[TOOL_MODE_LIST_SELECT]->set_accessibility_name(TTRC("Show List of Selectable Nodes"));
 
 	tool_button[TOOL_LOCK_SELECTED] = memnew(Button);
@@ -4079,7 +4087,7 @@ DynamicBVH::ID Node3DEditor::insert_gizmo_bvh_node(Node3D *p_node, const AABB &p
 
 void Node3DEditor::update_gizmo_bvh_node(DynamicBVH::ID p_id, const AABB &p_aabb) {
 	gizmo_bvh.update(p_id, p_aabb);
-	gizmo_bvh.optimize_incremental(1);
+	gizmo_bvh_needs_optimization = true;
 }
 
 void Node3DEditor::remove_gizmo_bvh_node(DynamicBVH::ID p_id) {

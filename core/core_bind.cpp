@@ -879,10 +879,12 @@ void OS::_bind_methods() {
 	ADD_PROPERTY_DEFAULT("low_processor_usage_mode", false);
 	ADD_PROPERTY_DEFAULT("low_processor_usage_mode_sleep_usec", 6900);
 
+#ifndef DISABLE_DEPRECATED
 	BIND_ENUM_CONSTANT(RENDERING_DRIVER_VULKAN);
 	BIND_ENUM_CONSTANT(RENDERING_DRIVER_OPENGL3);
 	BIND_ENUM_CONSTANT(RENDERING_DRIVER_D3D12);
 	BIND_ENUM_CONSTANT(RENDERING_DRIVER_METAL);
+#endif // DISABLE_DEPRECATED
 
 	BIND_ENUM_CONSTANT(SYSTEM_DIR_DESKTOP);
 	BIND_ENUM_CONSTANT(SYSTEM_DIR_DCIM);
@@ -2352,6 +2354,35 @@ void EngineDebugger::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("insert_breakpoint", "line", "source"), &EngineDebugger::insert_breakpoint);
 	ClassDB::bind_method(D_METHOD("remove_breakpoint", "line", "source"), &EngineDebugger::remove_breakpoint);
 	ClassDB::bind_method(D_METHOD("clear_breakpoints"), &EngineDebugger::clear_breakpoints);
+}
+
+Variant WeakRef::get_ref() const {
+	if (ref.is_null()) {
+		return Variant();
+	}
+
+	Object *obj = ObjectDB::get_instance(ref);
+	if (!obj) {
+		return Variant();
+	}
+	RefCounted *r = cast_to<RefCounted>(obj);
+	if (r) {
+		return Ref<RefCounted>(r);
+	}
+
+	return obj;
+}
+
+void WeakRef::set_obj(Object *p_object) {
+	ref = p_object ? p_object->get_instance_id() : ObjectID();
+}
+
+void WeakRef::set_ref(const Ref<RefCounted> &p_ref) {
+	ref = p_ref.is_valid() ? p_ref->get_instance_id() : ObjectID();
+}
+
+void WeakRef::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_ref"), &WeakRef::get_ref);
 }
 
 } // namespace CoreBind

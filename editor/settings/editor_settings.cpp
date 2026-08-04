@@ -45,6 +45,7 @@
 #include "core/object/class_db.h"
 #include "core/os/keyboard.h"
 #include "core/os/os.h"
+#include "core/string/regex.h"
 #include "core/string/translation_server.h"
 #include "core/templates/rb_set.h"
 #include "core/version.h"
@@ -61,8 +62,6 @@
 #include "scene/main/scene_tree.h"
 #include "scene/resources/animation.h"
 #include "servers/display/display_server.h"
-
-#include "modules/regex/regex.h"
 
 // PRIVATE METHODS
 
@@ -741,7 +740,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	// Theme
 	EDITOR_SETTING_BASIC(Variant::STRING, PROPERTY_HINT_ENUM, "text_editor/theme/color_theme", "Default", "Default,Godot 2,Custom")
 
-	// Theme: Highlighting
+	// Theme: Highlighting and Underlining
 	const LocalVector<StringName> basic_text_editor_settings = {
 		"text_editor/theme/highlighting/symbol_color",
 		"text_editor/theme/highlighting/keyword_color",
@@ -769,6 +768,8 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 		"text_editor/theme/highlighting/function_color",
 		"text_editor/theme/highlighting/member_variable_color",
 		"text_editor/theme/highlighting/mark_color",
+		"text_editor/theme/highlighting/warning_underline_color",
+		"text_editor/theme/highlighting/error_underline_color",
 	};
 	// These values will be overwritten by EditorThemeManager, but can still be seen in some edge cases.
 	const HashMap<StringName, Color> text_colors = get_godot2_text_editor_theme();
@@ -1353,6 +1354,9 @@ void EditorSettings::_handle_setting_compatibility() {
 
 	// Handle renamed shortcuts.
 	_rename_shortcut("editor/editor_assetlib", "editor/editor_asset_store");
+	_rename_shortcut("script_editor/window_move_up", "script_editor/move_document_up");
+	_rename_shortcut("script_editor/window_move_down", "script_editor/move_document_down");
+	_rename_shortcut("script_editor/window_sort", "script_editor/sort_documents");
 }
 
 void EditorSettings::_rename_setting(const String &p_old_name, const String &p_new_name) {
@@ -1954,6 +1958,9 @@ HashMap<StringName, Color> EditorSettings::get_godot2_text_editor_theme() {
 	colors["text_editor/theme/highlighting/comment_markers/critical_color"] = Color(0.77, 0.35, 0.35);
 	colors["text_editor/theme/highlighting/comment_markers/warning_color"] = Color(0.72, 0.61, 0.48);
 	colors["text_editor/theme/highlighting/comment_markers/notice_color"] = Color(0.56, 0.67, 0.51);
+
+	colors["text_editor/theme/highlighting/warning_underline_color"] = Color(0.89, 0.7, 0.2);
+	colors["text_editor/theme/highlighting/error_underline_color"] = Color(1.0, 0.0, 0.0);
 	return colors;
 }
 

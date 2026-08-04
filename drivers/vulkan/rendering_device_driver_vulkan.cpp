@@ -743,6 +743,9 @@ void RenderingDeviceDriverVulkan::_check_driver_workarounds(const VkPhysicalDevi
 				p_device_properties.vendorID == RenderingContextDriver::Vendor::VENDOR_QUALCOMM &&
 				strstr(p_driver_properties->driverInfo, "Compiler Version: EV031.32.02.") != nullptr;
 	}
+
+	// Workaround for a bug in NVIDIA drivers where submitting a render pass with no bound pipeline and an attachment using the "Don't Care" store operation causes a crash.
+	driver_workarounds.avoid_store_op_dont_care_in_draw_list_with_no_bound_pipeline = (p_device_properties.vendorID == RenderingContextDriver::Vendor::VENDOR_NVIDIA);
 }
 
 void RenderingDeviceDriverVulkan::_get_device_properties() {
@@ -3163,9 +3166,8 @@ RDD::CommandQueueID RenderingDeviceDriverVulkan::command_queue_create(CommandQue
 
 #if defined(SWAPPY_FRAME_PACING_ENABLED)
 	if (swappy_frame_pacer_enable) {
-		VkQueue selected_queue;
-		vkGetDeviceQueue(vk_device, family_index, picked_queue_index, &selected_queue);
-		SwappyVk_setQueueFamilyIndex(vk_device, selected_queue, family_index);
+		// Reuse the stored VkQueue handle; the Android Emulator's gfxstream driver returns a different one from each vkGetDeviceQueue() call.
+		SwappyVk_setQueueFamilyIndex(vk_device, queue_family[picked_queue_index].queue, family_index);
 	}
 #endif
 

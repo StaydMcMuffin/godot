@@ -167,6 +167,16 @@ public:
 /*  CharStringT                                                          */
 /*************************************************************************/
 
+/**
+ * Generalized string with copy-on-write semantics.
+ *
+ * Most users should use one of the aliases below (e.g. CharString).
+ *
+ * Core container guidance:
+ * https://docs.godotengine.org/en/latest/engine_details/architecture/core_types.html#containers
+ *
+ * @tparam T Specifies the contained character type, which usually also denotes the encoding.
+ */
 template <typename T>
 class [[nodiscard]] CharStringT {
 	CowData<T> _cowdata;
@@ -261,6 +271,12 @@ using Char16String = CharStringT<char16_t>;
 /*  String                                                               */
 /*************************************************************************/
 
+/**
+ * String (UTF-32 Unicode array) with copy-on-write semantics.
+ *
+ * Core container guidance:
+ * https://docs.godotengine.org/en/latest/engine_details/architecture/core_types.html#containers
+ */
 class [[nodiscard]] _WARN_UNUSED_ String {
 	CowData<char32_t> _cowdata;
 	static constexpr char32_t _null = 0;
@@ -546,8 +562,8 @@ public:
 
 	Char16String utf16() const;
 	Error append_utf16(const char16_t *p_utf16, int p_len = -1, bool p_default_little_endian = true);
-	Error append_utf16(const Span<char16_t> p_range, bool p_skip_cr = false) {
-		return append_utf16(p_range.ptr(), p_range.size(), p_skip_cr);
+	Error append_utf16(const Span<char16_t> p_range, bool p_default_little_endian = true) {
+		return append_utf16(p_range.ptr(), p_range.size(), p_default_little_endian);
 	}
 	static String utf16(const char16_t *p_utf16, int p_len = -1) {
 		String ret;

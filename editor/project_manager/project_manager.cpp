@@ -112,6 +112,7 @@ void ProjectManager::_notification(int p_what) {
 			_select_main_view(MAIN_VIEW_PROJECTS);
 			_update_list_placeholder();
 			_titlebar_resized();
+			_update_compact_mode(true);
 		} break;
 
 		case NOTIFICATION_TRANSLATION_CHANGED: {
@@ -123,6 +124,8 @@ void ProjectManager::_notification(int p_what) {
 			empty_list_message->set_text(vformat("[center][b]%s[/b] %s[/center]", line1, line2));
 
 			_titlebar_resized();
+
+			EditorHelpBit::clear_cache();
 		} break;
 
 		case NOTIFICATION_VISIBILITY_CHANGED: {
@@ -145,6 +148,7 @@ void ProjectManager::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_RESIZED: {
 			project_list->resize_project_titles();
+			_update_compact_mode();
 		} break;
 	}
 }
@@ -180,8 +184,18 @@ void ProjectManager::_build_icon_type_cache(Ref<Theme> p_theme) {
 
 // Main layout.
 
+// Hides certain parts of the Project Manager when window width gets smaller than combined_minimum_size.
+void ProjectManager::_update_compact_mode(bool p_reset_threshold) {
+	if (p_reset_threshold) {
+		compact_mode_threshold = root_container->get_combined_minimum_size().width;
+	}
+
+	bool compact_mode = get_size().width < compact_mode_threshold;
+	project_list_sidebar->set_visible(!compact_mode);
+}
+
 void ProjectManager::_update_size_limits() {
-	const Size2 minimum_size = Size2(720, 450) * EDSCALE;
+	const Size2 minimum_size = Size2(480, 300) * EDSCALE;
 
 	// Define a minimum window size to prevent UI elements from overlapping or being cut off.
 	Window *w = Object::cast_to<Window>(SceneTree::get_singleton()->get_root());
@@ -311,6 +325,11 @@ void ProjectManager::_update_theme(bool p_skip_creation) {
 			asset_library->add_theme_style_override(SceneStringName(panel), memnew(StyleBoxEmpty));
 		}
 	}
+
+#if defined(MODULE_GDSCRIPT_ENABLED) || defined(MODULE_MONO_ENABLED)
+	EditorHelpHighlighter::get_singleton()->clear_cache();
+#endif
+
 #ifdef ANDROID_ENABLED
 	DisplayServer::get_singleton()->window_set_color(theme->get_color("background", EditorStringName(Editor)));
 #endif
@@ -1669,7 +1688,7 @@ ProjectManager::ProjectManager() {
 			}
 
 			// The side bar with the edit, run, rename, etc. buttons.
-			VBoxContainer *project_list_sidebar = memnew(VBoxContainer);
+			project_list_sidebar = memnew(VBoxContainer);
 			project_list_sidebar->set_custom_minimum_size(Size2(120, 120) * EDSCALE);
 			project_list_hbox->add_child(project_list_sidebar);
 

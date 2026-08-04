@@ -39,6 +39,7 @@
 class Popup;
 class TileSet;
 class Tree;
+class TreeItem;
 class VSeparator;
 
 class TileSetAtlasSourceEditor : public HSplitContainer {
@@ -103,6 +104,8 @@ public:
 		Ref<TileSetAtlasSource> get_edited_tile_set_atlas_source() const { return tile_set_atlas_source; }
 		RBSet<TileSelection> get_edited_tiles() const { return RBSet<TileSelection>(tiles); }
 
+		bool is_different(const Ref<TileSetAtlasSource> &p_tile_set_atlas_source, const RBSet<TileSelection> &p_tiles) const;
+
 		// Update the proxied object.
 		void edit(Ref<TileSetAtlasSource> p_tile_set_atlas_source, const RBSet<TileSelection> &p_tiles = RBSet<TileSelection>());
 
@@ -145,6 +148,8 @@ private:
 	HashMap<String, TileDataEditor *> tile_data_editors;
 	TileDataEditor *current_tile_data_editor = nullptr;
 	void _tile_data_editors_tree_selected();
+
+	TreeItem *_add_tile_data_editor(TreeItem *p_parent, const String &p_property, const String &p_previously_selected, const String &p_text = String());
 
 	// -- Inspector --
 	Ref<AtlasTileProxyObject> tile_proxy_object;
