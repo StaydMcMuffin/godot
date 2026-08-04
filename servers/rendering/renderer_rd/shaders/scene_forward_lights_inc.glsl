@@ -279,6 +279,7 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 		specular_light += clearcoat_specular_brdf_NL * light_color * attenuation * specular_amount;
 #endif // LIGHT_CLEARCOAT_USED
 
+		// Diffuse //
 		if (metallic < half(1.0)) {
 			half diffuse_brdf_NL; // BRDF times N.L for calculating diffuse radiance
 
@@ -310,7 +311,9 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 #endif
 		}
 
-		if (roughness > half(0.0)) {
+		// Specular //
+		if ((specular_amount + metallic) > 0.0)
+		{
 #if defined(SPECULAR_SCHLICK_GGX)
 			half cNdotH = clamp(A + dot(N, H), half(0.0), half(1.0));
 #endif
@@ -826,7 +829,14 @@ vec2 normal_to_panorama(vec3 n) {
 	return panorama_coords;
 }
 
-void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3 vertex_ddx, vec3 vertex_ddy, hvec3 f0, half roughness, half metallic, float taa_frame_count, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
+
+void light_process_spot(
+		uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal,
+		vec3 vertex_ddx, vec3 vertex_ddy,
+		hvec3 f0, half roughness, half metallic,
+		float taa_frame_count, hvec3 albedo,
+		inout half alpha,
+		vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
 #endif
@@ -844,9 +854,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 #ifdef LIGHT_ANISOTROPY_USED
 		hvec3 binormal, hvec3 tangent, half anisotropy,
 #endif
-		inout hvec3 diffuse_light,
-		inout hvec3 specular_light
-)
+		inout hvec3 diffuse_light, inout hvec3 specular_light)
 {
 	// Spot light attenuation.
 	vec3 light_rel_vec = spot_lights.data[idx].position - vertex;
@@ -908,10 +916,9 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 	else
 	{
-		float cone_angle = spot_lights.data[idx].cone_angle;
-		float scos = max(dot(-vec3(light_rel_vec_norm), spot_dir), cone_angle);
-		float spot_rim = max(1e-4, (1.0 - scos) / (1.0 - cone_angle));
-		spot_attenuation *= half(1.0 - pow(spot_rim, spot_lights.data[idx].cone_attenuation));
+		float spot = clamp(acos(dot(-vec3(light_rel_vec_norm), spot_dir)) * spot_lights.data[idx].cone_angle, 0.0, 1.0);
+		spot = 1.0 - pow(spot, spot_lights.data[idx].cone_attenuation);
+		spot_attenuation *= half(spot * spot);
 	}
 
 	// Compute size.

@@ -1660,15 +1660,10 @@ void fragment_shader(in SceneData scene_data) {
 		float kernelRoughness2 = min(2.0 * variance, scene_data.roughness_limiter_limit); //limit effect
 		float filteredRoughness2 = min(1.0, roughness2 + kernelRoughness2);
 		roughness = sqrt(filteredRoughness2);
-
-		// Reject very small roughness values. Lack of precision can collapse
-		// roughness^4 to 0 in GGX specular equations and cause divisions by zero.
-		if (roughness < 0.00000001) {
-			roughness = 0.0;
-		}
 	}
 #endif
-	//apply energy conservation
+
+	roughness = max(0.002025, roughness);
 
 	vec3 direct_specular_light = vec3(0.0, 0.0, 0.0);
 	vec3 indirect_specular_light = vec3(0.0, 0.0, 0.0);

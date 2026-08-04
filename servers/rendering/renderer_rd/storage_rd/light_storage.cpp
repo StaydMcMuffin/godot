@@ -1004,6 +1004,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		Color linear_col = light->color.srgb_to_linear();
 
 		light_data.attenuation = light->param[RSE::LIGHT_PARAM_ATTENUATION];
+		light_data.size = light->param[RSE::LIGHT_PARAM_SIZE];
 
 		// Reuse fade begin, fade length and distance for shadow LOD determination later.
 		float fade_begin = 0.0;
@@ -1053,11 +1054,11 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.color[0] = linear_col.r * energy;
 		light_data.color[1] = linear_col.g * energy;
 		light_data.color[2] = linear_col.b * energy;
-		light_data.specular_amount = light->param[RSE::LIGHT_PARAM_SPECULAR] * 2.0;
+		light_data.specular_amount = light->param[RSE::LIGHT_PARAM_SPECULAR];
 		light_data.volumetric_fog_energy = light->param[RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 		light_data.bake_mode = light->bake_mode;
 
-		float radius = MAX(0.001, light->param[RSE::LIGHT_PARAM_RANGE]);
+		const float radius = MAX(0.001, light->param[RSE::LIGHT_PARAM_RANGE]);
 		light_data.inv_radius = 1.0 / radius;
 		Vector2 area_size = light->area_size;
 		Vector3 pos = inverse_transform.xform(light_transform.origin);
@@ -1071,12 +1072,15 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.direction[1] = direction.y;
 		light_data.direction[2] = direction.z;
 
-		light_data.size = light->param[RSE::LIGHT_PARAM_SIZE];
+		const float spot_angle = MAX(0.001, light->param[RSE::LIGHT_PARAM_SPOT_ANGLE]);
+		if (type == RSE::LIGHT_SPOT)
+		{
+			light_data.cos_spot_angle = 1.0 / Math::deg_to_rad(spot_angle);
+			light_data.inv_spot_attenuation = 4.0 / light->param[RSE::LIGHT_PARAM_SPOT_ATTENUATION];
+		}
 
-		light_data.inv_spot_attenuation = 1.0f / light->param[RSE::LIGHT_PARAM_SPOT_ATTENUATION];
-		float spot_angle = light->param[RSE::LIGHT_PARAM_SPOT_ANGLE];
-		light_data.cos_spot_angle = Math::cos(Math::deg_to_rad(spot_angle));
-		if (type == RSE::LIGHT_AREA) {
+		if (type == RSE::LIGHT_AREA)
+		{
 			Vector3 area_vec_a = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(1, 0, 0))).normalized() * area_size.x;
 			Vector3 area_vec_b = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 1, 0))).normalized() * area_size.y;
 
