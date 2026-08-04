@@ -234,6 +234,21 @@ Ref<Texture2D> Light3D::get_projector() const {
 	return projector;
 }
 
+
+void Light3D::set_projector_enabled(bool p_enable)
+{
+	projector_enabled = p_enable;
+	RID tex_id = (p_enable && projector.is_valid()) ? projector->get_rid() : RID();
+	RS::get_singleton()->light_set_projector(light, tex_id);
+}
+
+
+bool Light3D::get_projector_enabled() const
+{
+	return projector_enabled && projector.is_valid();
+}
+
+
 void Light3D::owner_changed_notify() {
 	// For cases where owner changes _after_ entering tree (as example, editor editing).
 	_update_visibility();
@@ -342,7 +357,7 @@ void Light3D::_validate_property(PropertyInfo &p_property) const {
 		p_property.usage = PROPERTY_USAGE_NONE;
 	} else if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (p_property.name == "light_intensity_lumens" || p_property.name == "light_intensity_lux" || p_property.name == "light_temperature")) {
 		p_property.usage = PROPERTY_USAGE_NONE;
-	} else if (get_light_type() == RSE::LIGHT_AREA && p_property.name == "light_projector") {
+	} else if (get_light_type() == RSE::LIGHT_AREA && (p_property.name == "light_projector" || p_property.name == "light_projector_blur")) {
 		p_property.usage = PROPERTY_USAGE_NONE;
 	}
 }
@@ -390,6 +405,9 @@ void Light3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_projector", "projector"), &Light3D::set_projector);
 	ClassDB::bind_method(D_METHOD("get_projector"), &Light3D::get_projector);
 
+	ClassDB::bind_method(D_METHOD("set_projector_enabled", "enable"), &Light3D::set_projector_enabled);
+	ClassDB::bind_method(D_METHOD("get_projector_enabled"), &Light3D::get_projector_enabled);
+
 	ClassDB::bind_method(D_METHOD("set_temperature", "temperature"), &Light3D::set_temperature);
 	ClassDB::bind_method(D_METHOD("get_temperature"), &Light3D::get_temperature);
 	ClassDB::bind_method(D_METHOD("get_correlated_color"), &Light3D::get_correlated_color);
@@ -402,14 +420,19 @@ void Light3D::_bind_methods() {
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_energy", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_ENERGY);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_indirect_energy", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_INDIRECT_ENERGY);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_volumetric_fog_energy", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_VOLUMETRIC_FOG_ENERGY);
-	// Only allow texture types that display correctly.
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "light_projector", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D,-AnimatedTexture,-AtlasTexture,-CameraTexture,-CanvasTexture,-MeshTexture,-Texture2DRD,-ViewportTexture"), "set_projector", "get_projector");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_size", PROPERTY_HINT_RANGE, "0,1,0.001,or_greater,suffix:m"), "set_param", "get_param", PARAM_SIZE);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_angular_distance", PROPERTY_HINT_RANGE, "0,90,0.01,degrees"), "set_param", "get_param", PARAM_SIZE);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_negative"), "set_negative", "is_negative");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_specular", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_SPECULAR);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "light_bake_mode", PROPERTY_HINT_ENUM, "Disabled,Static,Dynamic"), "set_bake_mode", "get_bake_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "light_cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
+
+	ADD_GROUP("Projector", "light_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_projector_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_projector_enabled", "get_projector_enabled");
+	// Only allow texture types that display correctly.
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "light_projector", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D,-AnimatedTexture,-AtlasTexture,-CameraTexture,-CanvasTexture,-MeshTexture,-Texture2DRD,-ViewportTexture"), "set_projector", "get_projector");
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_projector_blur", PROPERTY_HINT_RANGE, "0.0,1.0,0.001,or_greater"), "set_param", "get_param", PARAM_PROJECTOR_BLUR);
+	ADD_GROUP("", "");
 
 	ADD_GROUP("Shadow", "shadow_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shadow_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_shadow", "has_shadow");
@@ -451,6 +474,7 @@ void Light3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_PANCAKE_SIZE);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_OPACITY);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_BLUR);
+	BIND_ENUM_CONSTANT(PARAM_PROJECTOR_BLUR);
 	BIND_ENUM_CONSTANT(PARAM_TRANSMITTANCE_BIAS);
 	BIND_ENUM_CONSTANT(PARAM_INTENSITY);
 	BIND_ENUM_CONSTANT(PARAM_MAX);
@@ -505,6 +529,7 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_param(PARAM_SHADOW_BLUR, 1.0);
 	set_param(PARAM_SHADOW_BIAS, 0.1);
 	set_param(PARAM_SHADOW_NORMAL_BIAS, 1.0);
+	set_param(PARAM_PROJECTOR_BLUR, 0.0);
 	set_param(PARAM_TRANSMITTANCE_BIAS, 0.05);
 	set_param(PARAM_SHADOW_FADE_START, 1);
 	// For OmniLight3D and SpotLight3D, specified in Lumens.
@@ -513,8 +538,9 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_disable_scale(true);
 }
 
-Light3D::Light3D() {
-	ERR_PRINT("Light3D should not be instantiated directly; use the DirectionalLight3D, OmniLight3D or SpotLight3D subtypes instead.");
+Light3D::Light3D()
+{
+	ERR_PRINT("Light3D should not be instantiated directly; valid subtypes are DirectionalLight3D, OmniLight3D, SpotLight3D, and AreaLight3D.");
 }
 
 Light3D::~Light3D() {
@@ -568,11 +594,11 @@ void DirectionalLight3D::_validate_property(PropertyInfo &p_property) const {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
 	}
-	if (p_property.name == "light_size" || p_property.name == "light_projector") {
+	if (p_property.name == "light_size" || p_property.name == "light_projector" || p_property.name == "light_projector_blur") {
 		// Not implemented in DirectionalLight3D (`light_size` is replaced by `light_angular_distance`).
 		p_property.usage = PROPERTY_USAGE_NONE;
 	} else if (p_property.name == "distance_fade_enabled" || p_property.name == "distance_fade_begin" || p_property.name == "distance_fade_shadow" || p_property.name == "distance_fade_length") {
-		// Not relevant for DirectionalLight3D, as the light LOD system only pertains to point lights.
+		// Not relevant for DirectionalLight3D, as the light LOD system only pertains to positional lights.
 		// For DirectionalLight3D, `directional_shadow_max_distance` can be used instead.
 		p_property.usage = PROPERTY_USAGE_NONE;
 	}
@@ -634,10 +660,6 @@ OmniLight3D::ShadowMode OmniLight3D::get_shadow_mode() const {
 PackedStringArray OmniLight3D::get_configuration_warnings() const {
 	PackedStringArray warnings = Light3D::get_configuration_warnings();
 
-	if (!has_shadow() && get_projector().is_valid()) {
-		warnings.push_back(RTR("Projector texture only works with shadows active."));
-	}
-
 	if (get_projector().is_valid() && (OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" || OS::get_singleton()->get_current_rendering_method() == "dummy")) {
 		warnings.push_back(RTR("Projector textures are not supported when using the Compatibility renderer yet. Support will be added in a future release."));
 	}
@@ -668,10 +690,6 @@ PackedStringArray SpotLight3D::get_configuration_warnings() const {
 
 	if (has_shadow() && get_param(PARAM_SPOT_ANGLE) >= 90.0) {
 		warnings.push_back(RTR("A SpotLight3D with an angle wider than 90 degrees cannot cast shadows."));
-	}
-
-	if (!has_shadow() && get_projector().is_valid()) {
-		warnings.push_back(RTR("Projector texture only works with shadows active."));
 	}
 
 	if (get_projector().is_valid() && (OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" || OS::get_singleton()->get_current_rendering_method() == "dummy")) {

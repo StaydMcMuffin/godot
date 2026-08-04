@@ -20,18 +20,22 @@ struct LightData { //this structure needs to be as packed as possible
 
 	float specular_amount;
 	float shadow_opacity;
-	float pad[2];
+	float projector_blur_scale;
+	float pad;
 
 	vec4 atlas_rect; // rect in the shadow atlas
 	mat4 shadow_matrix;
+
 	float shadow_bias;
 	float shadow_normal_bias;
 	float transmittance_bias;
 	float soft_shadow_size; // for spot, it's the size in uv coordinates of the light, for omni it's the span angle
+
 	float soft_shadow_scale; // scales the shadow kernel for blurrier shadows
 	uint mask;
 	float volumetric_fog_energy;
 	uint bake_mode;
+	
 	vec4 projector_rect; //projector rect in srgb decal atlas
 };
 

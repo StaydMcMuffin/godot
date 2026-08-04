@@ -304,13 +304,13 @@ private:
 			Size2i size;
 			Point2i pos;
 
-			bool operator<(const SortItem &p_item) const {
-				//sort larger to smaller
-				if (size.height == p_item.size.height) {
+			// Sort from larger to smaller, prioritizing height.
+			bool operator<(const SortItem &p_item) const
+			{
+				if (size.height == p_item.size.height)
 					return size.width > p_item.size.width;
-				} else {
+				else
 					return size.height > p_item.size.height;
-				}
 			}
 		};
 
@@ -709,13 +709,23 @@ public:
 
 	RID decal_atlas_get_texture() const;
 	RID decal_atlas_get_texture_srgb() const;
-	_FORCE_INLINE_ Rect2 decal_atlas_get_texture_rect(RID p_texture) {
+	Size2i decal_atlas_get_size() const;
+	_FORCE_INLINE_ Rect2 decal_atlas_get_texture_rect(RID p_texture)
+	{
 		DecalAtlas::Texture *t = decal_atlas.textures.getptr(p_texture);
-		if (!t) {
+		if (!t)
 			return Rect2();
-		}
 
 		return t->uv_rect;
+	}
+	_FORCE_INLINE_ Size2i decal_atlas_get_texture_size(RID p_texture)
+	{
+		DecalAtlas::Texture *t = decal_atlas.textures.getptr(p_texture);
+		if (!t)
+			return Size2i();
+
+		Texture *src_tex = get_texture(p_texture);
+		return Size2i(src_tex->width, src_tex->height);
 	}
 
 	virtual RID decal_allocate() override;

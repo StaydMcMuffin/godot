@@ -41,6 +41,8 @@ struct SceneData {
 
 	vec2 shadow_atlas_pixel_size;
 	vec2 directional_shadow_pixel_size;
+	vec2 decal_atlas_size;
+	vec2 pad;
 
 	float radiance_pixel_size;
 	float radiance_border_size;

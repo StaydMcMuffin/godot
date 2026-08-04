@@ -78,6 +78,7 @@ public:
 
 	Size2 shadow_atlas_pixel_size;
 	Size2 directional_shadow_pixel_size;
+	Size2i decal_atlas_size;
 
 	float radiance_pixel_size;
 	float radiance_border_size;
@@ -141,6 +142,8 @@ private:
 
 		float shadow_atlas_pixel_size[2];
 		float directional_shadow_pixel_size[2];
+		float decal_atlas_size[2];
+		float pad[2];
 
 		float radiance_pixel_size;
 		float radiance_border_size;

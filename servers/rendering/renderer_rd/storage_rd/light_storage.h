@@ -134,9 +134,9 @@ private:
 
 	mutable RID_Owner<LightInstance> light_instance_owner;
 
-	/* OMNI/SPOT LIGHT DATA */
-
-	struct LightData {
+	/* POSITIONAL LIGHT DATA */
+	struct LightData
+	{
 		float position[3];
 		float inv_radius;
 		float direction[3]; // in omni, x and y are used for dual paraboloid offset
@@ -146,14 +146,15 @@ private:
 		float attenuation;
 
 		float area_width[3];
-		float inv_spot_attenuation; // area lights: 1 / (range + diagonal/2)
+		float inv_spot_attenuation; // Omni/spot: pow(exp2(max projector mip - 1) - 1, 2); Area: 1 / (range + diagonal/2)
 
 		float area_height[3];
 		float cos_spot_angle; // area lights: max mipmaps
 
 		float specular_amount;
 		float shadow_opacity;
-		float pad[2];
+		float projector_blur_scale;
+		float pad;
 
 		float atlas_rect[4]; // in omni, used for atlas uv, in spot, used for projector uv
 		float shadow_matrix[16];

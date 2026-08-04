@@ -1104,12 +1104,27 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.atlas_rect[2] = 0;
 		light_data.atlas_rect[3] = 0;
 
-		RID projector = light->projector;
+		const RID projector = light->projector;
 		bool spot_projector = false;
 
 		if (projector.is_valid() && type != RSE::LIGHT_AREA)
 		{
+			light_data.projector_blur_scale = light->param[RSE::LIGHT_PARAM_PROJECTOR_BLUR];
+			light_data.projector_blur_scale *= light_data.projector_blur_scale * 0.1;
+
 			Rect2 rect = texture_storage->decal_atlas_get_texture_rect(projector);
+			Size2i proj_size = texture_storage->decal_atlas_get_texture_size(projector);
+			int32_t proj_min_axis = MIN(proj_size.x, proj_size.y);
+
+			// Limit sampled mip per-projector to 8 pixels on its shortest axis.
+			uint32_t max_mip = 0;
+			while (proj_min_axis > 8)
+			{
+				proj_min_axis = proj_min_axis >> 1;
+				max_mip++;
+			}
+			light_data.inv_spot_attenuation = std::exp2(float(MAX(0, max_mip - 1))) - 1.0;
+			light_data.inv_spot_attenuation *= light_data.inv_spot_attenuation;
 
 			if (type == RSE::LIGHT_SPOT)
 			{

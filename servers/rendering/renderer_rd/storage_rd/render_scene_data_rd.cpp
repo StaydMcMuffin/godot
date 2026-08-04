@@ -142,6 +142,9 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 	ubo.directional_shadow_pixel_size[0] = directional_shadow_pixel_size.x;
 	ubo.directional_shadow_pixel_size[1] = directional_shadow_pixel_size.y;
 
+	ubo.decal_atlas_size[0] = float(decal_atlas_size.x);
+	ubo.decal_atlas_size[1] = float(decal_atlas_size.y);
+
 	ubo.radiance_pixel_size = radiance_pixel_size;
 	ubo.radiance_border_size = radiance_border_size;
 

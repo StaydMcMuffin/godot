@@ -56,6 +56,7 @@ public:
 		PARAM_SHADOW_PANCAKE_SIZE = RSE::LIGHT_PARAM_SHADOW_PANCAKE_SIZE,
 		PARAM_SHADOW_OPACITY = RSE::LIGHT_PARAM_SHADOW_OPACITY,
 		PARAM_SHADOW_BLUR = RSE::LIGHT_PARAM_SHADOW_BLUR,
+		PARAM_PROJECTOR_BLUR = RSE::LIGHT_PARAM_PROJECTOR_BLUR,
 		PARAM_TRANSMITTANCE_BIAS = RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS,
 		PARAM_INTENSITY = RSE::LIGHT_PARAM_INTENSITY,
 		PARAM_MAX = RSE::LIGHT_PARAM_MAX
@@ -84,6 +85,7 @@ private:
 	void _update_visibility();
 	BakeMode bake_mode = BAKE_DYNAMIC;
 	Ref<Texture2D> projector;
+	bool projector_enabled = false;
 	Color correlated_color = Color(1.0, 1.0, 1.0);
 	float temperature = 6500.0;
 	// bind helpers
@@ -143,6 +145,9 @@ public:
 
 	void set_projector(const Ref<Texture2D> &p_texture);
 	Ref<Texture2D> get_projector() const;
+
+	void set_projector_enabled(bool p_enable);
+	bool get_projector_enabled() const;
 
 	void set_temperature(const float p_temperature);
 	float get_temperature() const;

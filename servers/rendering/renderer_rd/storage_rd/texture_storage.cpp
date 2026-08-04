@@ -3679,6 +3679,10 @@ RID TextureStorage::decal_atlas_get_texture_srgb() const {
 	return decal_atlas.texture_srgb;
 }
 
+Size2i TextureStorage::decal_atlas_get_size() const {
+	return decal_atlas.size;
+}
+
 RID TextureStorage::decal_allocate() {
 	return decal_owner.allocate_rid();
 }
@@ -3811,60 +3815,60 @@ Dependency *TextureStorage::decal_get_dependency(RID p_decal) {
 	return &decal->dependency;
 }
 
-void TextureStorage::update_decal_atlas() {
+void TextureStorage::update_decal_atlas()
+{
 	CopyEffects *copy_effects = CopyEffects::get_singleton();
 	ERR_FAIL_NULL(copy_effects);
 
-	if (!decal_atlas.dirty) {
-		return; //nothing to do
-	}
+	if (!decal_atlas.dirty)
+		return;  // Nothing to do.
 
 	decal_atlas.dirty = false;
 
-	if (decal_atlas.texture.is_valid()) {
+	if (decal_atlas.texture.is_valid())
+	{
 		RD::get_singleton()->free_rid(decal_atlas.texture);
 		decal_atlas.texture = RID();
 		decal_atlas.texture_srgb = RID();
 		decal_atlas.texture_mipmaps.clear();
 	}
 
-	int border = 1 << decal_atlas.mipmaps;
+	uint32_t border = 1 << decal_atlas.mipmaps;
 
-	if (decal_atlas.textures.size()) {
-		//generate atlas
+	if (!decal_atlas.textures.is_empty())
+	{
+		// Get textures to pack in atlas.
 		Vector<DecalAtlas::SortItem> itemsv;
 		itemsv.resize(decal_atlas.textures.size());
 		uint32_t base_size = 8;
 
 		int idx = 0;
-
-		for (const KeyValue<RID, DecalAtlas::Texture> &E : decal_atlas.textures) {
+		for (const KeyValue<RID, DecalAtlas::Texture> &E : decal_atlas.textures)
+		{
 			DecalAtlas::SortItem &si = itemsv.write[idx];
-
 			Texture *src_tex = get_texture(E.key);
 
-			si.size.width = (src_tex->width / border) + 1;
-			si.size.height = (src_tex->height / border) + 1;
-			si.pixel_size = Size2i(src_tex->width, src_tex->height);
+			// Get texture size at smallest atlas mip, simplifies packing logic and ensures padding isn't lost.
+			// NOTE: Division-with-round-up plus 2 pixels of additional padding.
+			si.size.width = ((src_tex->width - 1) >> decal_atlas.mipmaps) + 3;
+			si.size.height = ((src_tex->height - 1) >> decal_atlas.mipmaps) + 3;
 
-			if (base_size < (uint32_t)si.size.width) {
+			si.pixel_size = Size2i(src_tex->width, src_tex->height);
+			if (base_size < (uint32_t)si.size.width)
 				base_size = Math::nearest_power_of_2_templated(si.size.width);
-			}
 
 			si.texture = E.key;
 			idx++;
 		}
+		itemsv.sort();  // Sort items by size.
 
-		//sort items by size
-		itemsv.sort();
-
-		//attempt to create atlas
+		// Pack textures in atlas.
+		// TODO: Figure out what packing algorithm this is, maybe replace with another if doing so can simplify things.
+		int atlas_height = 0;
 		int item_count = itemsv.size();
 		DecalAtlas::SortItem *items = itemsv.ptrw();
-
-		int atlas_height = 0;
-
-		while (true) {
+		while (true)
+		{
 			Vector<int> v_offsetsv;
 			v_offsetsv.resize(base_size);
 
@@ -3872,47 +3876,50 @@ void TextureStorage::update_decal_atlas() {
 			memset(v_offsets, 0, sizeof(int) * base_size);
 
 			// Take border into account for minimum height.
-			int max_height = 2;
-
-			for (int i = 0; i < item_count; i++) {
+			int max_height = 0;
+			for (int i = 0; i < item_count; i++)
+			{
 				//best fit
 				DecalAtlas::SortItem &si = items[i];
-				int best_idx = -1; // ideal x position
-				int best_height = 0x7FFFFFFF; // ideal y position
-				for (uint32_t j = 0; j <= base_size - si.size.width; j++) {
+				int best_idx = -1;  // ideal x position
+				int best_height = 0x7FFFFFFF;  // ideal y position
+				for (uint32_t j = 0; j <= base_size - si.size.width; j++)
+				{
 					int height = 0;
-					for (int k = 0; k < si.size.width; k++) {
+					for (int k = 0; k < si.size.width; k++)
+					{
 						int h = v_offsets[k + j];
-						if (h > height) {
+						if (h > height)
+						{
 							height = h;
-							if (height > best_height) {
-								break; //already bad
-							}
+							if (height > best_height)
+								break;  //already bad
 						}
 					}
 
-					if (height < best_height) {
+					if (height < best_height)
+					{
 						best_height = height;
 						best_idx = j;
 					}
 				}
 
-				//update
-				for (int k = 0; k < si.size.width; k++) {
+				// update
+				for (int k = 0; k < si.size.width; k++)
+				{
 					v_offsets[k + best_idx] = best_height + si.size.height;
 				}
 
 				si.pos.x = best_idx;
 				si.pos.y = best_height;
 
-				if (si.pos.y + si.size.height > max_height) {
-					max_height = si.pos.y + si.size.height;
-				}
+				max_height = MAX(max_height, si.pos.y + si.size.height);
 			}
 
-			if ((uint32_t)max_height <= base_size * 2) {
+			if ((uint32_t)max_height <= base_size * 2)
+			{
 				atlas_height = max_height;
-				break; //good ratio, break;
+				break;  // good ratio, break
 			}
 
 			base_size *= 2;
@@ -3921,21 +3928,25 @@ void TextureStorage::update_decal_atlas() {
 		decal_atlas.size.width = base_size * border;
 		decal_atlas.size.height = Math::nearest_power_of_2_templated(atlas_height * border);
 
-		for (int i = 0; i < item_count; i++) {
+		uint32_t atlas_min_axis = MIN(decal_atlas.size.width, decal_atlas.size.height);
+		decal_atlas.mipmaps = MAX(decal_atlas.mipmaps, Math::floor_log2(atlas_min_axis) - decal_atlas.mipmaps);
+
+		for (int i = 0; i < item_count; i++)
+		{
 			DecalAtlas::Texture *t = decal_atlas.textures.getptr(items[i].texture);
-			t->uv_rect.position = items[i].pos * border + Vector2i(border / 2, border / 2);
+			t->uv_rect.position = items[i].pos * border + Vector2i(border >> 1, border >> 1);
 			t->uv_rect.size = items[i].pixel_size;
 
 			t->uv_rect.position /= Size2(decal_atlas.size);
 			t->uv_rect.size /= Size2(decal_atlas.size);
 		}
-	} else {
-		//use border as size, so it at least has enough mipmaps
+	}
+	else
+	{
+		// Use border as size, so we always have enough mipmaps.
 		decal_atlas.size.width = border;
 		decal_atlas.size.height = border;
 	}
-
-	//blit textures
 
 	RD::TextureFormat tformat;
 	tformat.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
@@ -3950,12 +3961,11 @@ void TextureStorage::update_decal_atlas() {
 	decal_atlas.texture = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 	RD::get_singleton()->texture_clear(decal_atlas.texture, Color(0, 0, 0, 0), 0, decal_atlas.mipmaps, 0, 1);
 
+	// Create the atlas buffer.
 	{
-		//create the framebuffer
-
 		Size2i s = decal_atlas.size;
-
-		for (int i = 0; i < decal_atlas.mipmaps; i++) {
+		for (int i = 0; i < decal_atlas.mipmaps; i++)
+		{
 			DecalAtlas::MipMap mm;
 			mm.texture = RD::get_singleton()->texture_create_shared_from_slice(RD::TextureView(), decal_atlas.texture, 0, i);
 			Vector<RID> fb;
@@ -3966,43 +3976,60 @@ void TextureStorage::update_decal_atlas() {
 
 			s = Vector2i(s.width >> 1, s.height >> 1).maxi(1);
 		}
+
+		// sRGB sampler accesses a shared view of the same buffer with a different format.
 		{
-			//create the SRGB variant
 			RD::TextureView rd_view;
 			rd_view.format_override = RD::DATA_FORMAT_R8G8B8A8_SRGB;
 			decal_atlas.texture_srgb = RD::get_singleton()->texture_create_shared(rd_view, decal_atlas.texture);
 		}
 	}
 
-	RID prev_texture;
-	for (int i = 0; i < decal_atlas.texture_mipmaps.size(); i++) {
-		const DecalAtlas::MipMap &mm = decal_atlas.texture_mipmaps[i];
+	// Blit textures to atlas, using existing mipmaps as available.
+	// NOTE: This now blits every texture's mips separately to prevent bleeding, rather than blitting to mip0 and mipping the entire atlas.
+	const Color clear_color(0, 0, 0, 0);
+	RD::get_singleton()->texture_clear(decal_atlas.texture, clear_color, 0, decal_atlas.texture_mipmaps.size(), 0, 1);
+	if (!decal_atlas.textures.is_empty())
+	{
+		const uint32_t decal_atlas_mipmaps = decal_atlas.texture_mipmaps.size();
+		Vector<Color> cc;
+		cc.push_back(clear_color);
 
-		Color clear_color(0, 0, 0, 0);
+		for (const KeyValue<RID, DecalAtlas::Texture> &E : decal_atlas.textures)
+		{
+			DecalAtlas::Texture *t = decal_atlas.textures.getptr(E.key);
+			Texture *src_tex = get_texture(E.key);
 
-		if (decal_atlas.textures.size()) {
-			if (i == 0) {
-				Vector<Color> cc;
-				cc.push_back(clear_color);
-
-				// Make area light MIPs
-				RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(mm.fb, RD::DRAW_CLEAR_ALL, cc);
-				for (const KeyValue<RID, DecalAtlas::Texture> &E : decal_atlas.textures) {
-					DecalAtlas::Texture *t = decal_atlas.textures.getptr(E.key);
-					Texture *src_tex = get_texture(E.key);
-
-					copy_effects->copy_to_atlas_fb(src_tex->rd_texture, mm.fb, t->uv_rect, draw_list, false, t->panorama_to_dp_users > 0);
-				}
-
-				RD::get_singleton()->draw_list_end();
-
-				prev_texture = mm.texture;
-			} else {
-				copy_effects->copy_to_fb_rect(prev_texture, mm.fb, Rect2i(Point2i(), mm.size));
-				prev_texture = mm.texture;
+			auto src_view = RD::TextureView();
+			if (src_tex->rd_format >= RD::DATA_FORMAT_R8_UNORM && src_tex->rd_format <= RD::DATA_FORMAT_R8_SRGB)
+			{
+				// Handle grayscale textures imported with "optimized" channel usage.
+				src_view.swizzle_g = RD::TEXTURE_SWIZZLE_R;
+				src_view.swizzle_b = RD::TEXTURE_SWIZZLE_R;
 			}
-		} else {
-			RD::get_singleton()->texture_clear(mm.texture, clear_color, 0, 1, 0, 1);
+			
+			for (int i = 0; i < decal_atlas_mipmaps; i++)
+			{
+				const DecalAtlas::MipMap &decal_atlas_mip = decal_atlas.texture_mipmaps[i];
+				RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(decal_atlas_mip.fb, RD::DRAW_DEFAULT_ALL, cc);
+				
+				if (i < src_tex->mipmaps && i > 0)
+				{
+					// Blit from mips.
+					RID rd_source_texture_mip = RD::get_singleton()->texture_create_shared_from_slice(src_view, src_tex->rd_texture, 0, i);
+
+					copy_effects->copy_to_atlas_fb(rd_source_texture_mip, decal_atlas_mip.fb, t->uv_rect, draw_list, false, t->panorama_to_dp_users > 0);
+					RD::get_singleton()->draw_list_end();
+					RD::get_singleton()->free_rid(rd_source_texture_mip);
+				}
+				else
+				{
+					// Blit from mip0.
+					// TODO: Add full downsampling to copy shader so projector textures can be imported without mips.
+					copy_effects->copy_to_atlas_fb(src_tex->rd_texture, decal_atlas_mip.fb, t->uv_rect, draw_list, false, t->panorama_to_dp_users > 0);
+					RD::get_singleton()->draw_list_end();
+				}
+			}
 		}
 	}
 }

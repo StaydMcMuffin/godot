@@ -98,6 +98,66 @@ hvec3 f0_Clear_Coat_To_Surface(hvec3 f0) {
 	return clamp(f0 * (f0 * (half(0.941892) - half(0.263008) * f0) + half(0.346479)) - half(0.0285998), half(0.0), half(1.0));
 }
 
+
+#ifndef USE_LIGHTMAP
+float w0(float a) { return (1.0 / 6.0) * (a * (a * (-a + 3.0) - 3.0) + 1.0); }
+float w1(float a) { return (1.0 / 6.0) * (a * a * (3.0 * a - 6.0) + 4.0); }
+float w2(float a) { return (1.0 / 6.0) * (a * (a * (-3.0 * a + 3.0) + 3.0) + 1.0); }
+float w3(float a) { return (1.0 / 6.0) * (a * a * a); }
+float g0(float a) { return w0(a) + w1(a); }
+float g1(float a) { return w2(a) + w3(a); }
+float h0(float a) { return -1.0 + w1(a) / (w0(a) + w1(a)); }
+float h1(float a) { return 1.0 + w3(a) / (w2(a) + w3(a)); }
+#endif // !USE_LIGHTMAP
+vec4 texture2D_bicubic(in texture2D tex, in sampler smp, in vec2 uv, in vec2 tex_size, in float lod)
+{
+	vec2 pixel_size = vec2(1.0) / tex_size;
+
+	uv = uv * tex_size + vec2(0.5);
+
+	vec2 iuv = floor(uv);
+	vec2 fuv = fract(uv);
+
+	float g0x = g0(fuv.x);
+	float g1x = g1(fuv.x);
+	float h0x = h0(fuv.x);
+	float h1x = h1(fuv.x);
+	float h0y = h0(fuv.y);
+	float h1y = h1(fuv.y);
+
+	vec2 p0 = (vec2(iuv.x + h0x, iuv.y + h0y) - vec2(0.5)) * pixel_size;
+	vec2 p1 = (vec2(iuv.x + h1x, iuv.y + h0y) - vec2(0.5)) * pixel_size;
+	vec2 p2 = (vec2(iuv.x + h0x, iuv.y + h1y) - vec2(0.5)) * pixel_size;
+	vec2 p3 = (vec2(iuv.x + h1x, iuv.y + h1y) - vec2(0.5)) * pixel_size;
+
+	return (g0(fuv.y) * (g0x * textureLod(sampler2D(tex, smp), p0, lod) + g1x * textureLod(sampler2D(tex, smp), p1, lod))) +
+	       (g1(fuv.y) * (g0x * textureLod(sampler2D(tex, smp), p2, lod) + g1x * textureLod(sampler2D(tex, smp), p3, lod)));
+}
+vec4 textureLod_bicubic(in texture2D tex, in sampler smp, in vec2 uv, in vec2 tex_size, in float lod)
+{
+	int lod_l = int(floor(lod));
+	float lod_f = lod - float(lod_l);
+
+	vec2 tex_size_l = vec2(ivec2(tex_size) >> lod_l);
+	vec2 tex_size_h = vec2(ivec2(tex_size) >> (lod_l+1));
+
+	return mix(
+		texture2D_bicubic(tex, smp, uv, tex_size_l, float(lod_l)),
+		texture2D_bicubic(tex, smp, uv, tex_size_h, float(lod_l+1)),
+		lod_f
+	);
+}
+
+
+float sqr(in float x) { return x * x; }
+vec2 sqr(in vec2 v) { return v * v; }
+vec3 sqr(in vec3 v) { return v * v; }
+vec4 sqr(in vec4 v) { return v * v; }
+float length2(in vec2 v) { return dot(v, v); }
+float length2(in vec3 v) { return dot(v, v); }
+float length2(in vec4 v) { return dot(v, v); }
+
+
 void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is_directional, half attenuation, hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
@@ -802,7 +862,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		vec4 splane = (spot_lights.data[idx].shadow_matrix * vec4(vertex, 1.0));
 		splane /= splane.w;
 
-		if (splane.x <= 0.0 || splane.x >= 1.0 || splane.y <= 0.0 || splane.y >= 1.0)
+		if (splane.x <= 0.0 || splane.x >= 1.0 || splane.y <= 0.0 || splane.y >= 1.0 || splane.z <= 0.0 || splane.z >= 1.0)
 		{
 			spot_attenuation = 0.0;
 		}
@@ -811,7 +871,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 			vec2 proj_uv = clamp(splane.xy, vec2(0.0), vec2(1.0)) * spot_lights.data[idx].projector_rect.zw;
 			if (sc_projector_use_mipmaps())
 			{
-				//ensure we have proper mipmaps
+				// Get gradients for projected UVs, this covers both trilinear and anisotropic cases.
 				vec4 splane_ddx = spot_lights.data[idx].shadow_matrix * vec4(vertex + vertex_ddx, 1.0);
 				splane_ddx /= splane_ddx.w;
 				vec2 proj_uv_ddx = splane_ddx.xy * spot_lights.data[idx].projector_rect.zw - proj_uv;
@@ -820,8 +880,24 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 				splane_ddy /= splane_ddy.w;
 				vec2 proj_uv_ddy = splane_ddy.xy * spot_lights.data[idx].projector_rect.zw - proj_uv;
 
-				vec4 proj = textureGrad(sampler2D(decal_atlas_srgb, light_projector_sampler), proj_uv + spot_lights.data[idx].projector_rect.xy, proj_uv_ddx, proj_uv_ddy);
-				color *= proj.rgb * proj.a;
+				// Projectors with distance blur use bicubic filtering and thus can't make use of anisotropic filtering.
+				if (spot_lights.data[idx].projector_blur_scale > 0.0)
+				{
+					// Base mip level calculated with avg() instead of max() derivatives to avoid over-blurring.
+					float proj_uv_base_mip = min(spot_lights.data[idx].cone_attenuation, (length2(proj_uv_ddx * scene_data_block.data.decal_atlas_size) + length2(proj_uv_ddy * scene_data_block.data.decal_atlas_size)) * 0.5);
+					float proj_uv_blur_mip = clamp(light_length * spot_lights.data[idx].projector_blur_scale, 0.0, 1.0);
+					proj_uv_blur_mip = proj_uv_blur_mip * proj_uv_blur_mip * spot_lights.data[idx].cone_attenuation + 1.0;
+					proj_uv_base_mip = max(proj_uv_base_mip, proj_uv_blur_mip);
+					proj_uv_base_mip = 0.5 * log2(max(1.0, proj_uv_base_mip));
+
+					vec4 proj = textureLod_bicubic(decal_atlas_srgb, light_projector_sampler, proj_uv + spot_lights.data[idx].projector_rect.xy, scene_data_block.data.decal_atlas_size, proj_uv_base_mip);
+					color *= proj.rgb * proj.a;
+				}
+				else
+				{
+					vec4 proj = textureGrad(sampler2D(decal_atlas_srgb, light_projector_sampler), proj_uv + spot_lights.data[idx].projector_rect.xy, proj_uv_ddx, proj_uv_ddy);
+					color *= proj.rgb * proj.a;
+				}
 			}
 			else
 			{

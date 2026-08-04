@@ -1425,6 +1425,12 @@ void RendererSceneRenderRD::render_scene(const Ref<RenderSceneBuffers> &p_render
 			scene_data.directional_shadow_pixel_size.y = 1.0 / directional_shadow_size;
 		}
 
+		{
+			RID decal_atlas = texture_storage->decal_atlas_get_texture();
+			if (decal_atlas.is_valid())
+				scene_data.decal_atlas_size = texture_storage->decal_atlas_get_size();
+		}
+
 		if (p_environment.is_valid()) {
 			RID sky_rid = environment_get_sky(p_environment);
 			if (sky_rid.is_valid()) {
