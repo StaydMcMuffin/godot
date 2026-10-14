@@ -1214,10 +1214,10 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		if (light_data.shadow_opacity > 0.001)
 		{
 			const float shadow_texel_size = light_instance_get_shadow_texel_size(light_instance->self, p_shadow_atlas);
+			light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] * 2.0;  // 2x previously came from shadows_quality_radius_get()
 			light_data.shadow_normal_bias = light->param[RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS] * shadow_texel_size * 10.0;
 			light_data.transmittance_bias = light->param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS];
 			light_data.shadow_bias = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS];
-			light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR];
 			if (type == RSE::LIGHT_SPOT)
 				light_data.shadow_bias *= light_data.soft_shadow_scale / 100.0;
 
@@ -1239,17 +1239,17 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 				if (type == RSE::LIGHT_SPOT)
 				{
 					float half_np = cm_z_near * Math::tan(Math::deg_to_rad(spot_angle));
-					light_data.soft_shadow_size = (light_data.size * 0.5 / radius) / (half_np / cm_z_near) * rect.size.width;
+					light_data.soft_shadow_size = (light_data.size * 0.5 / radius) / (half_np / cm_z_near) * rect.size.width * 0.5;
 				}
 				else  // RSE::LIGHT_OMNI || RSE::LIGHT_AREA
 				{
-					light_data.soft_shadow_size = light_data.size;
+					light_data.soft_shadow_size = light_data.size * 0.5;
 				}
 			}
 			else
 			{
 				light_data.soft_shadow_size = 0.0;
-				light_data.soft_shadow_scale *= RendererSceneRenderRD::get_singleton()->shadows_quality_radius_get();
+				//light_data.soft_shadow_scale *= RendererSceneRenderRD::get_singleton()->shadows_quality_radius_get();
 			}
 		}
 

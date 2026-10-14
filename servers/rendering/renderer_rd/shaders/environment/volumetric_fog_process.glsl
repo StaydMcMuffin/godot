@@ -408,22 +408,22 @@ void main() {
 					float z_range;
 
 					if (depth_z < directional_lights.data[i].shadow_split_offsets.x) {
-						pssm_coord = (directional_lights.data[i].shadow_matrix1 * v);
+						pssm_coord = (directional_lights.data[i].shadow_matrix[0] * v);
 						pssm_coord /= pssm_coord.w;
 						z_range = directional_lights.data[i].shadow_z_range.x;
 
 					} else if (depth_z < directional_lights.data[i].shadow_split_offsets.y) {
-						pssm_coord = (directional_lights.data[i].shadow_matrix2 * v);
+						pssm_coord = (directional_lights.data[i].shadow_matrix[1] * v);
 						pssm_coord /= pssm_coord.w;
 						z_range = directional_lights.data[i].shadow_z_range.y;
 
 					} else if (depth_z < directional_lights.data[i].shadow_split_offsets.z) {
-						pssm_coord = (directional_lights.data[i].shadow_matrix3 * v);
+						pssm_coord = (directional_lights.data[i].shadow_matrix[2] * v);
 						pssm_coord /= pssm_coord.w;
 						z_range = directional_lights.data[i].shadow_z_range.z;
 
 					} else {
-						pssm_coord = (directional_lights.data[i].shadow_matrix4 * v);
+						pssm_coord = (directional_lights.data[i].shadow_matrix[3] * v);
 						pssm_coord /= pssm_coord.w;
 						z_range = directional_lights.data[i].shadow_z_range.w;
 					}

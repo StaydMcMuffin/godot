@@ -85,10 +85,7 @@ struct DirectionalLightData {
 	vec4 shadow_z_range;
 	vec4 shadow_range_begin;
 	vec4 shadow_split_offsets;
-	mat4 shadow_matrix1;
-	mat4 shadow_matrix2;
-	mat4 shadow_matrix3;
-	mat4 shadow_matrix4;
+	mat4 shadow_matrix[4];
 	vec2 uv_scale1;
 	vec2 uv_scale2;
 	vec2 uv_scale3;

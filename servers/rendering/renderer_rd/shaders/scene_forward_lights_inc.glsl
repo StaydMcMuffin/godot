@@ -235,41 +235,40 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 	alpha = half(alpha_highp);
 	diffuse_light = hvec3(diffuse_light_highp);
 	specular_light = hvec3(specular_light_highp);
-#else // !LIGHT_CODE_USED
+#else  // LIGHT_CODE_USED
 	half NdotL = min(A + dot(N, L), half(1.0));
 	half cNdotV = max(dot(N, V), half(1e-4));
 
 #ifdef LIGHT_TRANSMITTANCE_USED
-	{
 #ifdef SSS_MODE_SKIN
-		diffuse_light += SSS_skin(NdotL, transmittance_depth, transmittance_z, transmittance_boost, transmittance_color, light_color);
+	diffuse_light += SSS_skin(NdotL, transmittance_depth, transmittance_z, transmittance_boost, transmittance_color, light_color);
 #else
-		diffuse_light += SSS(NdotL, transmittance_depth, transmittance_z, transmittance_boost, transmittance_color, light_color);
-#endif
-	}
-#endif //LIGHT_TRANSMITTANCE_USED
+	diffuse_light += SSS(NdotL, transmittance_depth, transmittance_z, transmittance_boost, transmittance_color, light_color);
+#endif // SSS_MODE_SKIN
+#endif // LIGHT_TRANSMITTANCE_USED
 
-#if defined(LIGHT_RIM_USED)
+#ifdef LIGHT_RIM_USED
 	// Epsilon min to prevent pow(0, 0) singularity which results in undefined behavior.
 	half rim_light = pow(max(half(1e-4), half(1.0) - cNdotV), max(half(0.0), (half(1.0) - roughness) * half(16.0)));
 	diffuse_light += rim_light * rim * mix(hvec3(1.0), albedo, rim_tint) * light_color;
-#endif
+#endif // LIGHT_RIM_USED
 
 	half cc_attenuation = half(1.0);
 
-	// We skip checking on attenuation on directional lights to avoid a branch that is not as beneficial for directional lights as the other ones.
-	if (is_directional || attenuation > HALF_FLT_MIN) {
+	// Short-circuit the attenuation branch on directional lights.
+	if (is_directional || attenuation > HALF_FLT_MIN)
+	{
 		half cNdotL = max(NdotL, half(0.0));
 #if defined(DIFFUSE_BURLEY) || defined(SPECULAR_SCHLICK_GGX) || defined(LIGHT_CLEARCOAT_USED)
 		hvec3 H = normalize(V + L);
 		half cLdotH = clamp(A + dot(L, H), half(0.0), half(1.0));
-#endif
+		half cLdotH5 = SchlickFresnel(cLdotH);
+#endif // DIFFUSE_BURLEY || SPECULAR_SCHLICK_GGX || LIGHT_CLEARCOAT_USED
 
 #if defined(LIGHT_CLEARCOAT_USED)
 		// Clearcoat ignores normal_map, use vertex normal instead
-		half ccNdotL = clamp(A + dot(vertex_normal, L), half(0.0), half(1.0));
-		half ccNdotH = clamp(A + dot(vertex_normal, H), half(0.0), half(1.0));
-		half cLdotH5 = SchlickFresnel(cLdotH);
+		half ccNdotL = clamp(A + dot(vertex_normal, L), 0.0, 1.0);
+		half ccNdotH = clamp(A + dot(vertex_normal, H), 0.0001, 1.0);
 
 		half Dr = D_GGX(ccNdotH, half(mix(half(0.001), half(0.1), clearcoat_roughness)), vertex_normal, H);
 		half Gr = V_Kelemen(cLdotH);
@@ -280,60 +279,47 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 #endif // LIGHT_CLEARCOAT_USED
 
 		// Diffuse //
-		if (metallic < half(1.0)) {
-			half diffuse_brdf_NL; // BRDF times N.L for calculating diffuse radiance
-
+		if (metallic < 1.0)
+		{
 #if defined(DIFFUSE_LAMBERT_WRAP)
 			// Energy conserving lambert wrap shader.
 			// https://web.archive.org/web/20210228210901/http://blog.stevemcauley.com/2011/12/03/energy-conserving-wrapped-diffuse/
 			half op_roughness = half(1.0) + roughness;
-			diffuse_brdf_NL = max(half(0.0), (NdotL + roughness) / (op_roughness * op_roughness)) * half(1.0 / M_PI);
+			half diffuse_brdf_NL = max(half(0.0), (NdotL + roughness) / (op_roughness * op_roughness)) * (1.0 / M_PI);
 #elif defined(DIFFUSE_TOON)
-
-			diffuse_brdf_NL = smoothstep(-roughness, max(roughness, half(0.01)), NdotL) * half(1.0 / M_PI);
-
+			half diffuse_brdf_NL = smoothstep(-roughness, max(roughness, half(0.01)), NdotL) * (1.0 / M_PI);
 #elif defined(DIFFUSE_BURLEY)
-			{
-				half FD90_minus_1 = half(2.0) * cLdotH * cLdotH * roughness - half(0.5);
-				half FdV = half(1.0) + FD90_minus_1 * SchlickFresnel(cNdotV);
-				half FdL = half(1.0) + FD90_minus_1 * SchlickFresnel(cNdotL);
-				diffuse_brdf_NL = half(1.0 / M_PI) * FdV * FdL * cNdotL;
-			}
-#else
-			// lambert
-			diffuse_brdf_NL = cNdotL * half(1.0 / M_PI);
-#endif
-
+			half FD90_minus_1 = half(2.0) * cLdotH * cLdotH * roughness - half(0.5);
+			half FdV = half(1.0) + FD90_minus_1 * SchlickFresnel(cNdotV);
+			half FdL = half(1.0) + FD90_minus_1 * SchlickFresnel(cNdotL);
+			half diffuse_brdf_NL = half(1.0 / M_PI) * FdV * FdL * cNdotL;
+#else  // DIFFUSE_LAMBERT_WRAP
+			half diffuse_brdf_NL = cNdotL * (1.0 / M_PI);
+#endif // DIFFUSE_MODE
 			diffuse_light += light_color * diffuse_brdf_NL * attenuation * cc_attenuation;
 
-#if defined(LIGHT_BACKLIGHT_USED)
-			diffuse_light += light_color * (hvec3(1.0 / M_PI) - diffuse_brdf_NL) * backlight * attenuation;
-#endif
+#ifdef LIGHT_BACKLIGHT_USED
+			diffuse_light += light_color * ((1.0 / M_PI) - diffuse_brdf_NL) * backlight * attenuation;
+#endif // LIGHT_BACKLIGHT_USED
 		}
 
+#ifndef SPECULAR_DISABLED
 		// Specular //
 		if ((specular_amount + metallic) > 0.0)
 		{
-#if defined(SPECULAR_SCHLICK_GGX)
-			half cNdotH = clamp(A + dot(N, H), half(0.0), half(1.0));
-#endif
-			// Apply specular light.
-			// FIXME: roughness == 0 should not disable specular light entirely
-#if defined(SPECULAR_TOON)
+#ifdef SPECULAR_TOON
 			hvec3 R = normalize(-reflect(L, N));
-			half RdotV = dot(R, V);
+			half RdotV = A + dot(R, V);
 			half mid = half(1.0) - roughness;
 			mid *= mid;
 			half intensity = smoothstep(mid - roughness * half(0.5), mid + roughness * half(0.5), RdotV) * mid;
-			diffuse_light += light_color * intensity * attenuation * specular_amount; // write to diffuse_light, as in toon shading you generally want no reflection
-
-#elif defined(SPECULAR_DISABLED)
-			// Do nothing.
-
-#elif defined(SPECULAR_SCHLICK_GGX)
-			// shlick+ggx as default
+			diffuse_light += light_color * intensity * attenuation * specular_amount;  // Toon shading writes to diffuse_light, so specularity is affected by diffuse color.
+#else  // SPECULAR_SCHLICK_GGX
+			// GGX
+			half cNdotH = clamp(A + dot(N, H), 0.0001, 1.0);
 			half alpha_ggx = roughness * roughness;
-#if defined(LIGHT_ANISOTROPY_USED)
+
+#ifdef LIGHT_ANISOTROPY_USED
 			half aspect = sqrt(half(1.0) - anisotropy * half(0.9));
 			half ax = alpha_ggx / aspect;
 			half ay = alpha_ggx * aspect;
@@ -341,26 +327,24 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 			half YdotH = dot(B, H);
 			half D = D_GGX_anisotropic(cNdotH, ax, ay, XdotH, YdotH);
 			half G = V_GGX_anisotropic(ax, ay, dot(T, V), dot(T, L), dot(B, V), dot(B, L), cNdotV, cNdotL);
-#else // LIGHT_ANISOTROPY_USED
+#else  // LIGHT_ANISOTROPY_USED
 			half D = D_GGX(cNdotH, alpha_ggx, N, H);
 			half G = V_GGX(cNdotL, cNdotV, alpha_ggx);
 #endif // LIGHT_ANISOTROPY_USED
-	   // F
-#if !defined(LIGHT_CLEARCOAT_USED)
-			half cLdotH5 = SchlickFresnel(cLdotH);
-#endif
+
 			// Calculate Fresnel using specular occlusion term from Filament:
 			// https://google.github.io/filament/Filament.html#lighting/occlusion/specularocclusion
 			half f90 = clamp(dot(f0, hvec3(50.0 * 0.33)), metallic, half(1.0));
 			hvec3 F = f0 + (f90 - f0) * cLdotH5;
 			hvec3 specular_brdf_NL = energy_compensation * cNdotL * D * F * G;
 			specular_light += specular_brdf_NL * light_color * attenuation * cc_attenuation * specular_amount;
-#endif
+#endif // SPECULAR_MODE
 		}
+#endif // !SPECULAR_DISABLED
 
 #ifdef USE_SHADOW_TO_OPACITY
 		alpha = min(alpha, clamp(half(1.0 - attenuation), half(0.0), half(1.0)));
-#endif
+#endif // USE_SHADOW_TO_OPACITY
 	}
 #endif // LIGHT_CODE_USED
 }
