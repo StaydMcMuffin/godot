@@ -49,6 +49,7 @@ namespace GLES3 {
 struct Light {
 	RSE::LightType type;
 	float param[RSE::LIGHT_PARAM_MAX];
+	float flags[RSE::LIGHT_FLAG_MAX];
 	Color color = Color(1, 1, 1, 1);
 	RID projector;
 	bool shadow = false;
@@ -325,6 +326,7 @@ public:
 
 	virtual void light_set_color(RID p_light, const Color &p_color) override;
 	virtual void light_set_param(RID p_light, RSE::LightParam p_param, float p_value) override;
+	virtual void light_set_flag(RID p_light, RSE::LightFlag p_flag, bool p_enable) override;
 	virtual void light_set_shadow(RID p_light, bool p_enabled) override;
 	virtual void light_set_projector(RID p_light, RID p_texture) override;
 	virtual void light_set_negative(RID p_light, bool p_enable) override;

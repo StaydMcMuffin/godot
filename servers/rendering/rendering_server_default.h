@@ -490,6 +490,7 @@ public:
 
 	FUNC2(light_set_color, RID, const Color &)
 	FUNC3(light_set_param, RID, RSE::LightParam, float)
+	FUNC3(light_set_flag, RID, RSE::LightFlag, bool)
 	FUNC2(light_set_shadow, RID, bool)
 	FUNC2(light_set_projector, RID, RID)
 	FUNC2(light_set_negative, RID, bool)

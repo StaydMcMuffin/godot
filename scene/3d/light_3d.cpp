@@ -62,6 +62,29 @@ real_t Light3D::get_param(Param p_param) const
 	return param[p_param];
 }
 
+
+void Light3D::set_flag(Flag p_flag, bool p_enable)
+{
+	ERR_FAIL_INDEX(p_flag, FLAG_MAX);
+	if (flags[p_flag] == p_enable)
+		return;
+
+	flags[p_flag] = p_enable;
+	RS::get_singleton()->light_set_flag(light, RSE::LightFlag(p_flag), p_enable);
+
+	if (p_flag == FLAG_CAST_SHADOWS)
+		update_configuration_warnings();
+	else if (p_flag == FLAG_EDITOR_ONLY)
+		_update_visibility();
+}
+
+bool Light3D::get_flag(Flag p_flag) const
+{
+	ERR_FAIL_INDEX_V(p_flag, FLAG_MAX, false);
+	return flags[p_flag];
+}
+
+
 void Light3D::set_shadow(bool p_enable) {
 	shadow = p_enable;
 	RS::get_singleton()->light_set_shadow(light, p_enable);
@@ -354,7 +377,9 @@ bool Light3D::is_editor_only() const {
 	return editor_only;
 }
 
-void Light3D::_validate_property(PropertyInfo &p_property) const {
+
+void Light3D::_validate_property(PropertyInfo &p_property) const
+{
 	if (get_light_type() != RSE::LIGHT_DIRECTIONAL && (p_property.name == "light_angular_distance" || p_property.name == "light_intensity_lux")) {
 		// Angular distance and Light Intensity Lux are only used in DirectionalLight3D.
 		p_property.usage = PROPERTY_USAGE_NONE;
@@ -367,12 +392,17 @@ void Light3D::_validate_property(PropertyInfo &p_property) const {
 	}
 }
 
-void Light3D::_bind_methods() {
+
+void Light3D::_bind_methods()
+{
 	ClassDB::bind_method(D_METHOD("set_editor_only", "editor_only"), &Light3D::set_editor_only);
 	ClassDB::bind_method(D_METHOD("is_editor_only"), &Light3D::is_editor_only);
 
 	ClassDB::bind_method(D_METHOD("set_param", "param", "value"), &Light3D::set_param);
 	ClassDB::bind_method(D_METHOD("get_param", "param"), &Light3D::get_param);
+
+	ClassDB::bind_method(D_METHOD("set_flag", "flag", "enable"), &Light3D::set_flag);
+	ClassDB::bind_method(D_METHOD("get_flag", "flag"), &Light3D::get_flag);
 
 	ClassDB::bind_method(D_METHOD("set_shadow", "enabled"), &Light3D::set_shadow);
 	ClassDB::bind_method(D_METHOD("has_shadow"), &Light3D::has_shadow);
@@ -427,6 +457,7 @@ void Light3D::_bind_methods() {
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_indirect_energy", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_INDIRECT_ENERGY);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_volumetric_fog_energy", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_VOLUMETRIC_FOG_ENERGY);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_size", PROPERTY_HINT_RANGE, "0,4096,0.001,hide_control,suffix:m"), "set_param", "get_param", PARAM_SIZE);
+	ADD_PROPERTYI(PropertyInfo(Variant::BOOL, "light_normalize"), "set_flag", "get_flag", FLAG_NORMALIZE_ENERGY);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_angular_distance", PROPERTY_HINT_RANGE, "0,90,0.01,degrees"), "set_param", "get_param", PARAM_SIZE);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_negative"), "set_negative", "is_negative");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_specular", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_SPECULAR);
@@ -485,6 +516,12 @@ void Light3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_INTENSITY);
 	BIND_ENUM_CONSTANT(PARAM_MAX);
 
+	BIND_ENUM_CONSTANT(FLAG_CAST_SHADOWS);
+	BIND_ENUM_CONSTANT(FLAG_REVERSE_SHADOW_CULL);
+	BIND_ENUM_CONSTANT(FLAG_EDITOR_ONLY);
+	BIND_ENUM_CONSTANT(FLAG_NORMALIZE_ENERGY);
+	BIND_ENUM_CONSTANT(FLAG_MAX);
+
 	BIND_ENUM_CONSTANT(BAKE_DISABLED);
 	BIND_ENUM_CONSTANT(BAKE_STATIC);
 	BIND_ENUM_CONSTANT(BAKE_DYNAMIC);
@@ -514,6 +551,7 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_color(Color(1, 1, 1, 1));
 	set_shadow(false);
 	set_negative(false);
+	set_flag(FLAG_NORMALIZE_ENERGY, true);
 	set_cull_mask(0xFFFFFFFF);
 
 	set_param(PARAM_ENERGY, 1);
@@ -549,13 +587,13 @@ Light3D::Light3D()
 	ERR_PRINT("Light3D should not be instantiated directly; valid subtypes are DirectionalLight3D, OmniLight3D, SpotLight3D, and AreaLight3D.");
 }
 
-Light3D::~Light3D() {
+Light3D::~Light3D()
+{
 	ERR_FAIL_NULL(RenderingServer::get_singleton());
 	RS::get_singleton()->instance_set_base(get_instance(), RID());
 
-	if (light.is_valid()) {
+	if (light.is_valid())
 		RenderingServer::get_singleton()->free_rid(light);
-	}
 }
 
 /////////////////////////////////////////
@@ -588,7 +626,8 @@ DirectionalLight3D::SkyMode DirectionalLight3D::get_sky_mode() const {
 	return sky_mode;
 }
 
-void DirectionalLight3D::_validate_property(PropertyInfo &p_property) const {
+void DirectionalLight3D::_validate_property(PropertyInfo &p_property) const
+{
 	if (Engine::get_singleton()->is_editor_hint()) {
 		if (shadow_mode == SHADOW_ORTHOGONAL && (p_property.name == "directional_shadow_split_1" || p_property.name == "directional_shadow_blend_splits")) {
 			// Split 2 and split blending are only used with the PSSM 2 Splits and PSSM 4 Splits shadow modes.

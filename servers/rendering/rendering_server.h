@@ -312,6 +312,7 @@ public:
 
 	virtual void light_set_color(RID p_light, const Color &p_color) = 0;
 	virtual void light_set_param(RID p_light, RSE::LightParam p_param, float p_value) = 0;
+	virtual void light_set_flag(RID p_light, RSE::LightFlag p_flag, bool p_enable) = 0;
 	virtual void light_set_shadow(RID p_light, bool p_enabled) = 0;
 	virtual void light_set_projector(RID p_light, RID p_texture) = 0;
 	virtual void light_set_negative(RID p_light, bool p_enable) = 0;
@@ -319,7 +320,6 @@ public:
 	virtual void light_set_distance_fade(RID p_light, bool p_enabled, float p_begin, float p_shadow, float p_length) = 0;
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled) = 0;
 	virtual void light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) = 0;
-
 	virtual void light_set_bake_mode(RID p_light, RSE::LightBakeMode p_bake_mode) = 0;
 	virtual void light_set_max_sdfgi_cascade(RID p_light, uint32_t p_cascade) = 0;
 
@@ -1100,6 +1100,7 @@ VARIANT_ENUM_CAST_EXT(RSE::MultimeshTransformFormat, RenderingServer::MultimeshT
 VARIANT_ENUM_CAST_EXT(RSE::MultimeshPhysicsInterpolationQuality, RenderingServer::MultimeshPhysicsInterpolationQuality);
 VARIANT_ENUM_CAST_EXT(RSE::LightType, RenderingServer::LightType);
 VARIANT_ENUM_CAST_EXT(RSE::LightParam, RenderingServer::LightParam);
+VARIANT_ENUM_CAST_EXT(RSE::LightFlag, RenderingServer::LightFlag);
 VARIANT_ENUM_CAST_EXT(RSE::LightBakeMode, RenderingServer::LightBakeMode);
 VARIANT_ENUM_CAST_EXT(RSE::LightOmniShadowMode, RenderingServer::LightOmniShadowMode);
 VARIANT_ENUM_CAST_EXT(RSE::LightDirectionalShadowMode, RenderingServer::LightDirectionalShadowMode);

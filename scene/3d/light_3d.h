@@ -36,7 +36,8 @@ class Light3D : public VisualInstance3D {
 	GDCLASS(Light3D, VisualInstance3D);
 
 public:
-	enum Param {
+	enum Param
+	{
 		PARAM_ENERGY = RSE::LIGHT_PARAM_ENERGY,
 		PARAM_INDIRECT_ENERGY = RSE::LIGHT_PARAM_INDIRECT_ENERGY,
 		PARAM_VOLUMETRIC_FOG_ENERGY = RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY,
@@ -62,7 +63,17 @@ public:
 		PARAM_MAX = RSE::LIGHT_PARAM_MAX
 	};
 
-	enum BakeMode {
+	enum Flag
+	{
+		FLAG_CAST_SHADOWS = RSE::LIGHT_FLAG_CAST_SHADOWS,
+		FLAG_REVERSE_SHADOW_CULL = RSE::LIGHT_FLAG_REVERSE_SHADOW_CULL,
+		FLAG_EDITOR_ONLY = RSE::LIGHT_FLAG_EDITOR_ONLY,
+		FLAG_NORMALIZE_ENERGY = RSE::LIGHT_FLAG_NORMALIZE_ENERGY,
+		FLAG_MAX = RSE::LIGHT_FLAG_MAX
+	};
+
+	enum BakeMode
+	{
 		BAKE_DISABLED,
 		BAKE_STATIC,
 		BAKE_DYNAMIC,
@@ -71,6 +82,7 @@ public:
 private:
 	Color color;
 	real_t param[PARAM_MAX] = {};
+	bool flags[FLAG_MAX] = {};
 	bool shadow = false;
 	bool negative = false;
 	bool reverse_cull = false;
@@ -109,6 +121,9 @@ public:
 
 	void set_param(Param p_param, real_t p_value);
 	real_t get_param(Param p_param) const;
+
+	void set_flag(Flag p_flag, bool p_enable);
+	bool get_flag(Flag p_flag) const;
 
 	void set_shadow(bool p_enable);
 	bool has_shadow() const;
@@ -161,7 +176,9 @@ public:
 };
 
 VARIANT_ENUM_CAST(Light3D::Param);
+VARIANT_ENUM_CAST(Light3D::Flag);
 VARIANT_ENUM_CAST(Light3D::BakeMode);
+
 
 class DirectionalLight3D : public Light3D {
 	GDCLASS(DirectionalLight3D, Light3D);
@@ -204,6 +221,7 @@ public:
 VARIANT_ENUM_CAST(DirectionalLight3D::ShadowMode)
 VARIANT_ENUM_CAST(DirectionalLight3D::SkyMode)
 
+
 class OmniLight3D : public Light3D {
 	GDCLASS(OmniLight3D, Light3D);
 
@@ -231,6 +249,7 @@ public:
 
 VARIANT_ENUM_CAST(OmniLight3D::ShadowMode)
 
+
 class SpotLight3D : public Light3D {
 	GDCLASS(SpotLight3D, Light3D);
 
@@ -242,6 +261,7 @@ public:
 
 	SpotLight3D();
 };
+
 
 class AreaLight3D : public Light3D {
 	GDCLASS(AreaLight3D, Light3D);

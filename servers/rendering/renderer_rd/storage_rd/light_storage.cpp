@@ -251,6 +251,31 @@ void LightStorage::light_set_param(RID p_light, RSE::LightParam p_param, float p
 	light->param[p_param] = p_value;
 }
 
+
+void LightStorage::light_set_flag(RID p_light, RSE::LightFlag p_flag, bool p_enable)
+{
+	Light *light = light_owner.get_or_null(p_light);
+	ERR_FAIL_NULL(light);
+	ERR_FAIL_INDEX(p_flag, RSE::LIGHT_FLAG_MAX);
+
+	if (light->flags[p_flag] == p_enable)
+		return;
+
+	switch (p_flag)
+	{
+		case RSE::LIGHT_FLAG_CAST_SHADOWS:
+		case RSE::LIGHT_FLAG_REVERSE_SHADOW_CULL:
+		{
+			light->version++;
+			light->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_LIGHT);
+		} break;
+		default: {}
+	}
+
+	light->flags[p_flag] = p_enable;
+}
+
+
 void LightStorage::light_set_shadow(RID p_light, bool p_enabled) {
 	Light *light = light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(light);
@@ -1006,50 +1031,50 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.attenuation = light->param[RSE::LIGHT_PARAM_ATTENUATION];
 		light_data.size = light->param[RSE::LIGHT_PARAM_SIZE];
 
-		// Reuse fade begin, fade length and distance for shadow LOD determination later.
+		// Reuse fade begin, length, and distance for shadow LOD determination later.
 		float fade_begin = 0.0;
 		float fade_shadow = 0.0;
 		float fade_length = 0.0;
 
 		float fade = 1.0;
 		float shadow_opacity_fade = 1.0;
-		if (light->distance_fade) {
+		if (light->distance_fade)
+		{
 			fade_begin = light->distance_fade_begin;
 			fade_shadow = light->distance_fade_shadow;
 			fade_length = light->distance_fade_length;
 
 			// Use `smoothstep()` to make opacity changes more gradual and less noticeable to the player.
-			if (distance > fade_begin) {
+			if (distance > fade_begin)
 				fade = Math::smoothstep(0.0f, 1.0f, 1.0f - float(distance - fade_begin) / fade_length);
-			}
 
-			if (distance > fade_shadow) {
+			if (distance > fade_shadow)
 				shadow_opacity_fade = Math::smoothstep(0.0f, 1.0f, 1.0f - float(distance - fade_shadow) / fade_length);
-			}
 		}
 
 		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade;
 
-		if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
+		if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units())
+		{
 			energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
 
 			// Convert from Luminous Power to Luminous Intensity
-			if (type == RSE::LIGHT_OMNI) {
+			if (type == RSE::LIGHT_OMNI)
 				energy *= 1.0 / (Math::PI * 4.0);
-			} else if (type == RSE::LIGHT_AREA) {
+			else if (type == RSE::LIGHT_AREA)
 				energy *= 1.0 / (Math::PI * 2.0);
-			} else {
+			else
 				// Spot Lights are not physically accurate, Luminous Intensity should change in relation to the cone angle.
 				// We make this assumption to keep them easy to control.
 				energy *= 1.0 / Math::PI;
-			}
-		} else {
+		}
+		else
+		{
 			energy *= Math::PI;
 		}
 
-		if (p_render_data->camera_attributes.is_valid()) {
+		if (p_render_data->camera_attributes.is_valid())
 			energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
-		}
 
 		light_data.color[0] = linear_col.r * energy;
 		light_data.color[1] = linear_col.g * energy;
