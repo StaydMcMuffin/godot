@@ -222,10 +222,7 @@ private:
 		float shadow_range_begin[4];
 		float shadow_split_offsets[4];
 		float shadow_matrices[4][16];
-		float uv_scale1[2];
-		float uv_scale2[2];
-		float uv_scale3[2];
-		float uv_scale4[2];
+		float uv_scale[4][4];  // std140 meme, have to use vec4s instead of vec2s.
 	};
 
 	uint32_t max_directional_lights;

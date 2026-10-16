@@ -736,7 +736,17 @@ void LightStorage::set_max_lights(const uint32_t p_max_lights) {
 	directional_light_buffer = RD::get_singleton()->uniform_buffer_create(directional_light_buffer_size);
 }
 
-void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows) {
+void LightStorage::update_light_buffers(
+		RenderDataRD *p_render_data,
+  const	PagedArray<RID> &p_lights,
+  const	Transform3D &p_camera_transform,
+		RID p_shadow_atlas,
+		bool p_using_shadows,
+		uint32_t &r_directional_light_count,
+		uint32_t &r_positional_light_count,
+		bool &r_directional_light_soft_shadows
+	)
+{
 	ForwardIDStorage *forward_id_storage = ForwardIDStorage::get_singleton();
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
@@ -744,50 +754,52 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 	r_directional_light_count = 0;
 	r_positional_light_count = 0;
+	r_directional_light_soft_shadows = false;
 
 	omni_light_count = 0;
 	spot_light_count = 0;
 	area_light_count = 0;
 
-	r_directional_light_soft_shadows = false;
-
-	for (int i = 0; i < (int)p_lights.size(); i++) {
+	for (int i = 0; i < (int)p_lights.size(); i++)
+	{
 		LightInstance *light_instance = light_instance_owner.get_or_null(p_lights[i]);
-		if (!light_instance) {
+		if (!light_instance)
 			continue;
-		}
-		Light *light = light_owner.get_or_null(light_instance->light);
 
+		Light *light = light_owner.get_or_null(light_instance->light);
 		ERR_CONTINUE(light == nullptr);
 
-		switch (light->type) {
-			case RSE::LIGHT_DIRECTIONAL: {
-				if (r_directional_light_count >= max_directional_lights || light->directional_sky_mode == RSE::LIGHT_DIRECTIONAL_SKY_MODE_SKY_ONLY) {
+		switch (light->type)
+		{
+			case RSE::LIGHT_DIRECTIONAL:
+			{
+				if (r_directional_light_count >= max_directional_lights || light->directional_sky_mode == RSE::LIGHT_DIRECTIONAL_SKY_MODE_SKY_ONLY)
 					continue;
-				}
 
 				DirectionalLightData &light_data = directional_lights[r_directional_light_count];
 
 				Transform3D light_transform = light_instance->transform;
-
 				Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 0, 1))).normalized();
-
 				light_data.direction[0] = direction.x;
 				light_data.direction[1] = direction.y;
 				light_data.direction[2] = direction.z;
 
-				float sign = light->negative ? -1 : 1;
-
-				light_data.energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY];
-
-				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
+				light_data.energy = light->param[RSE::LIGHT_PARAM_ENERGY] * (light->negative ? -1 : 1);
+				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units())
 					light_data.energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
-				} else {
+				else
 					light_data.energy *= Math::PI;
-				}
 
-				if (p_render_data->camera_attributes.is_valid()) {
+				if (p_render_data->camera_attributes.is_valid())
 					light_data.energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+
+				light_data.size = 0.0;
+				const float angular_diameter = Math::deg_to_rad(light->param[RSE::LIGHT_PARAM_SIZE]);
+				if (angular_diameter > 0.0)
+				{
+					light_data.size = 1.0 - Math::cos(angular_diameter);
+					if (light->flags[RSE::LIGHT_FLAG_NORMALIZE_ENERGY])
+						light_data.energy /= 1.0 + light_data.size;  // Spherical area light normalization, scale total outgoing radiance in proportion solid angle.
 				}
 
 				Color linear_col = light->color.srgb_to_linear();
@@ -798,94 +810,65 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 				light_data.specular = light->param[RSE::LIGHT_PARAM_SPECULAR];
 				light_data.volumetric_fog_energy = light->param[RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 				light_data.mask = light->cull_mask;
-
-				float size = light->param[RSE::LIGHT_PARAM_SIZE];
-
-				light_data.size = 1.0 - Math::cos(Math::deg_to_rad(size)); //angle to cosine offset
-
-				light_data.shadow_opacity = (p_using_shadows && light->shadow)
-						? light->param[RSE::LIGHT_PARAM_SHADOW_OPACITY]
-						: 0.0;
-
-				float angular_diameter = light->param[RSE::LIGHT_PARAM_SIZE];
-				if (angular_diameter > 0.0) {
-					// I know tan(0) is 0, but let's not risk it with numerical precision.
-					// technically this will keep expanding until reaching the sun, but all we care
-					// is expand until we reach the radius of the near plane (there can't be more occluders than that)
-					angular_diameter = Math::tan(Math::deg_to_rad(angular_diameter));
-					if (light->shadow && light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] > 0.0) {
-						// Only enable PCSS-like soft shadows if blurring is enabled.
-						// Otherwise, performance would decrease with no visual difference.
-						r_directional_light_soft_shadows = true;
-					}
-				} else {
-					angular_diameter = 0.0;
-				}
-
 				light_data.bake_mode = light->bake_mode;
 
-				if (light_data.shadow_opacity > 0.001) {
-					RSE::LightDirectionalShadowMode smode = light->directional_shadow_mode;
-
-					light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR];
-					light_data.softshadow_angle = angular_diameter;
-
-					if (angular_diameter <= 0.0) {
-						light_data.soft_shadow_scale *= RendererSceneRenderRD::get_singleton()->directional_shadow_quality_radius_get(); // Only use quality radius for PCF
-					}
-
-					int limit = smode == RSE::LIGHT_DIRECTIONAL_SHADOW_ORTHOGONAL ? 0 : (smode == RSE::LIGHT_DIRECTIONAL_SHADOW_PARALLEL_2_SPLITS ? 1 : 3);
+				if (p_using_shadows && light->shadow && light->param[RSE::LIGHT_PARAM_SHADOW_OPACITY] > 0.001)
+				{
+					const RSE::LightDirectionalShadowMode smode = light->directional_shadow_mode;
+					const int limit = (smode == RSE::LIGHT_DIRECTIONAL_SHADOW_ORTHOGONAL) ? 0 : (smode == RSE::LIGHT_DIRECTIONAL_SHADOW_PARALLEL_2_SPLITS ? 1 : 3);
 					light_data.blend_splits = (smode != RSE::LIGHT_DIRECTIONAL_SHADOW_ORTHOGONAL) && light->directional_blend_splits;
-					for (int j = 0; j < 4; j++) {
-						Rect2 atlas_rect = light_instance->shadow_transform[j].atlas_rect;
-						Projection correction;
-						correction.set_depth_correction(false, true, false);
-						Projection matrix = correction * light_instance->shadow_transform[j].camera;
-						float split = j <= limit ? light_instance->shadow_transform[j].split : 0;
 
-						Projection bias;
-						bias.set_light_bias();
+					light_data.shadow_opacity = light->param[RSE::LIGHT_PARAM_SHADOW_OPACITY];
+					light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] * 2.0;  // 2x previously came from directional_shadow_quality_radius_get()
+					light_data.softshadow_angle = (angular_diameter > 0.0) ? MIN(Math::tan(angular_diameter * 0.5), Math::deg_to_rad(45.0)) : 0.0;
+
+					if (angular_diameter > 0.0 && light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] > 0.0)  // Don't bother enabling PCSS if filter scale is 0.
+						r_directional_light_soft_shadows = true;  
+					
+					// Setup per-cascade shadow data.
+					for (int split_idx = 0; split_idx < 4; split_idx++)
+					{
+						const Rect2 atlas_rect = light_instance->shadow_transform[split_idx].atlas_rect;
+						
 						Projection rectm;
 						rectm.set_light_atlas_rect(atlas_rect);
 
-						Transform3D modelview = (inverse_transform * light_instance->shadow_transform[j].transform).inverse();
+						Projection bias;
+						bias.set_light_bias();
 
-						Projection shadow_mtx = rectm * bias * matrix * modelview;
-						light_data.shadow_split_offsets[j] = split;
-						float bias_scale = light_instance->shadow_transform[j].bias_scale * light_data.soft_shadow_scale;
-						light_data.shadow_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS] / 100.0 * bias_scale;
-						light_data.shadow_normal_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS] * light_instance->shadow_transform[j].shadow_texel_size;
-						light_data.shadow_transmittance_bias[j] = light->param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] / 100.0 * bias_scale;
-						light_data.shadow_z_range[j] = light_instance->shadow_transform[j].farplane;
-						light_data.shadow_range_begin[j] = light_instance->shadow_transform[j].range_begin;
-						RendererRD::MaterialStorage::store_camera(shadow_mtx, light_data.shadow_matrices[j]);
+						Projection correction;
+						correction.set_depth_correction(false, true, false);
 
-						Vector2 uv_scale = light_instance->shadow_transform[j].uv_scale;
-						uv_scale *= atlas_rect.size; //adapt to atlas size
-						switch (j) {
-							case 0: {
-								light_data.uv_scale1[0] = uv_scale.x;
-								light_data.uv_scale1[1] = uv_scale.y;
-							} break;
-							case 1: {
-								light_data.uv_scale2[0] = uv_scale.x;
-								light_data.uv_scale2[1] = uv_scale.y;
-							} break;
-							case 2: {
-								light_data.uv_scale3[0] = uv_scale.x;
-								light_data.uv_scale3[1] = uv_scale.y;
-							} break;
-							case 3: {
-								light_data.uv_scale4[0] = uv_scale.x;
-								light_data.uv_scale4[1] = uv_scale.y;
-							} break;
-						}
+						Projection camera_matrix = light_instance->shadow_transform[split_idx].camera;
+						Transform3D modelview = (inverse_transform * light_instance->shadow_transform[split_idx].transform).inverse();
+
+						Projection shadow_mtx = rectm * bias * correction * camera_matrix * modelview;
+						RendererRD::MaterialStorage::store_camera(shadow_mtx, light_data.shadow_matrices[split_idx]);
+
+						//const float shadow_texel_size = light_instance->shadow_transform[split_idx].shadow_texel_size;
+						const float shadow_texel_size = light_instance_get_directional_shadow_texel_size(light_instance->self, split_idx);
+						const float bias_scale = light_instance->shadow_transform[split_idx].bias_scale * light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] / 100.0;
+						light_data.shadow_bias[split_idx] = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS] * bias_scale;
+						light_data.shadow_normal_bias[split_idx] = light->param[RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS] * shadow_texel_size;
+						light_data.shadow_transmittance_bias[split_idx] = light->param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] * bias_scale;
+
+						light_data.shadow_z_range[split_idx] = light_instance->shadow_transform[split_idx].farplane;
+						light_data.shadow_range_begin[split_idx] = light_instance->shadow_transform[split_idx].range_begin;
+						light_data.shadow_split_offsets[split_idx] = (split_idx <= limit) ? light_instance->shadow_transform[split_idx].split : 0.0;
+
+						const Vector2 uv_scale = light_instance->shadow_transform[split_idx].uv_scale * atlas_rect.size;
+						light_data.uv_scale[split_idx][0] = uv_scale.x;
+						light_data.uv_scale[split_idx][1] = uv_scale.y;
+						light_data.uv_scale[split_idx][2] = 0.0;
+						light_data.uv_scale[split_idx][3] = 0.0;
 					}
 
-					float fade_start = light->param[RSE::LIGHT_PARAM_SHADOW_FADE_START];
-					light_data.fade_from = -light_data.shadow_split_offsets[limit] * MIN(fade_start, 0.999); //using 1.0 would break smoothstep
+					const float fade_start = MIN(light->param[RSE::LIGHT_PARAM_SHADOW_FADE_START], 0.999);  // <1.0 to avoid breaking smoothstep later.
+					light_data.fade_from = -light_data.shadow_split_offsets[limit] * fade_start;
 					light_data.fade_to = -light_data.shadow_split_offsets[limit];
 				}
+				else
+					light_data.shadow_opacity = 0.0;
 
 				r_directional_light_count++;
 			} break;
@@ -1071,6 +1054,13 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		else
 		{
 			energy *= Math::PI;
+		}
+
+		// Spherical area light normalization, scale total outgoing radiance in proportion to surface area.
+		if ((type == RSE::LIGHT_OMNI || type == RSE::LIGHT_SPOT) && light_data.size > 0.0 && light->flags[RSE::LIGHT_FLAG_NORMALIZE_ENERGY])
+		{
+			float shading_area = MAX(0.001, light_data.size);  // Matches minimum area in `_lights_inc` shaders.
+			energy /= (1.0 + shading_area * shading_area);
 		}
 
 		if (p_render_data->camera_attributes.is_valid())

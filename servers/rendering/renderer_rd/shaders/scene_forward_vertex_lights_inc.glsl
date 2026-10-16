@@ -13,6 +13,15 @@
 #endif
 
 
+float sqr (in float x)	{ return x * x; }
+vec2  sqr (in vec2 v)	{ return v * v; }
+vec3  sqr (in vec3 v)	{ return v * v; }
+vec4  sqr (in vec4 v)	{ return v * v; }
+float length2 (in vec2 v)	{ return dot(v, v); }
+float length2 (in vec3 v)	{ return dot(v, v); }
+float length2 (in vec4 v)	{ return dot(v, v); }
+
+
 // Converts GGX roughness to Blinn-Phong shininess.
 // Roughly approximates `2.0 / roughness * roughness - 2.0` with a much lower high end.
 // Range is ~[0.05,656].
@@ -24,22 +33,12 @@ half roughness_to_shininess(half roughness)
 }
 
 
-half D_GGX(half NoH, in half roughness, hvec3 n, hvec3 h)
+float D_GGX (in float NdotH, in float alpha)
 {
-#if 0
-	half a = NoH * roughness;
-	hvec3 NxH = cross(n, h);
-	half k = roughness / (dot(NxH, NxH) + a * a);
-	half d = k * k * half(1.0 / M_PI);
-	return saturateHalf(d);
-#else
-	// Soft-limit minimum roughness to lessen per-vertex aliasing.
-	roughness = roughness * 0.99 + 0.01;
-	roughness = roughness * roughness;  
-
-	float denom = NoH * NoH * (roughness - 1.0) + 1.0;
-	return roughness / (M_PI * denom * denom);
-#endif
+	alpha = alpha * 0.99 + 0.01;  // Soft-limit minimum roughness to lessen per-vertex aliasing.
+	float alpha_sqr = alpha * alpha;
+	float denom = NdotH * NdotH * (alpha_sqr - 1.0) + 1.0;
+	return alpha_sqr / (M_PI * denom * denom);
 }
 
 
@@ -123,36 +122,46 @@ half sample_directional_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_si
 
 
 void light_compute_vertex(
-		vec3 N, vec3 L, vec3 V, float A, vec3 light_color, float roughness, float specular_amount,
-		inout vec3 diffuse_light, inout vec3 specular_light)
+		vec3 N, vec3 L, vec3 V, float W, vec3 light_color,
+		float roughness, float specular_amount,
+		inout vec3 diffuse_light, inout vec3 specular_light
+	)
 {
-	float NdotL = min(A + dot(N, L), 1.0);
+	float cos_W = 0.0; float cos_W_norm = 1.0; float W_norm = 1.0;
+	if (W > 0.0)
+	{
+		cos_W = max(0.0, 1.0 - inversesqrt(1.0 + W * W));
+		//cos_W = max(0.0, W * inversesqrt(1.0 + W * W));
+		cos_W_norm = 1.0 / (1.0 + cos_W);
+		W_norm = 1.0 / (1.0 + W);
+	}
+
+	float NdotL = clamp((W + dot(N, L)) * W_norm, -1.0, 1.0);
 	float cNdotL = max(NdotL, 0.0);
 
 #if defined(DIFFUSE_LAMBERT_WRAP)
 	// Energy conserving lambert wrap shader.
 	// https://web.archive.org/web/20210228210901/http://blog.stevemcauley.com/2011/12/03/energy-conserving-wrapped-diffuse/
-	float diffuse_brdf_NL = max(0.0, (NdotL + roughness) / ((1.0 + roughness) * (1.0 + roughness))) * (1.0 / M_PI);
+	float diffuse = max(0.0, (NdotL + roughness) / ((1.0 + roughness) * (1.0 + roughness)));
 #elif defined(DIFFUSE_TOON)
 	float softness = roughness * 0.9 + 0.1;  // Enforce minimum 10% softness to reduce per-vertex aliasing.
-	float diffuse_brdf_NL = smoothstep(-softness, softness, NdotL) * (1.0 / M_PI);
+	float diffuse = smoothstep(-softness, softness, NdotL);
 #else  // DIFFUSE_LAMBERT
-	float diffuse_brdf_NL = cNdotL * (1.0 / M_PI);
+	float diffuse = cNdotL;
 #endif // DIFFUSE_MODE
-	diffuse_light += light_color * diffuse_brdf_NL;
+	diffuse_light += light_color * diffuse * (1.0 / M_PI);
 
 #ifndef SPECULAR_DISABLED
 #if defined(SPECULAR_TOON)
 	vec3 R = normalize(-reflect(L, N));
-	float RdotV = A + dot(R, V);
-	float mid = 1.0 - roughness;
-	mid *= mid;
+	float RdotV = (W + dot(R, V)) * W_norm;
+	float mid = 1.0 - roughness; mid *= mid;
 	float softness = roughness * 0.49 + 0.01;  // Enforce minimum 1% softness to slightly reduce per-vertex aliasing.
 	float intensity = smoothstep(max(-1.0, mid - softness), min(1.0, mid + softness), RdotV) * mid;
 	diffuse_light += light_color * (intensity * specular_amount);  // Toon shading writes to diffuse_light, so specularity is affected by diffuse color.
 #else  // SPECULAR_SCHLICK_GGX
 	hvec3 H = normalize(V + L);
-	float cNdotH = clamp(A + dot(N, H), 0.0001, 1.0);
+	float cNdotH = clamp((W + dot(N, H)) * W_norm, 0.0001, 1.0);
 #if 0
 	// Normalized Blinn (TODO: make Blinn selectable alongside GGX and Toon)
 	float shininess = roughness_to_shininess(roughness);
@@ -160,7 +169,7 @@ void light_compute_vertex(
 	blinn *= (shininess + 8.0) * (1.0 / (8.0 * M_PI)) * cNdotL;
 	specular_light += light_color * (blinn * specular_amount);
 #else
-	float ggx = D_GGX(cNdotH, roughness * roughness, N, H) * cNdotL;
+	float ggx = D_GGX(cNdotH, roughness * roughness) * cNdotL;
 	specular_light += light_color * (ggx * specular_amount);
 #endif
 #endif // SPECULAR_MODE
@@ -168,14 +177,26 @@ void light_compute_vertex(
 }
 
 
-float get_omni_attenuation(float distance, float inv_range, float decay)
+float get_distance_attenuation (
+		in float distance, in float inv_range, in float area, in float decay)
 {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(distance, 0.0001), -decay);
+	float linear_distance = clamp(distance * inv_range, 0.0, 1.0);
+	float falloff = sqr(1.0 - sqr(sqr(linear_distance)));  // Frostbite range falloff.
+	
+	float distance2 = distance * distance; float area2 = area * area;
+#if 1
+	// Common ad-hoc sphere light attenuation, with power curve.
+	// NOTE: This formula is normally energy-conserving, but to support `decay` power we scale the result back up
+	//       then re-apply normalization by scaling `energy` on the CPU side.
+	float attenuation = pow((1.0 + area2 * 0.5) / (distance2 + area2 * 0.5), decay * 0.5);
+#else
+	// From "Point Light Attenuation Without Singularity" by Cem Yuksel
+	// ( http://www.cemyuksel.com/research/pointlightattenuation/pointlightattenuation.pdf )
+	float attenuation = (1.0 + area * area)  / (distance2 + area2 + distance * sqrt(distance2 + area2));
+	attenuation = pow(attenuation, decay * 0.5);
+#endif
+
+	return attenuation * falloff;
 }
 
 
@@ -186,17 +207,11 @@ void light_process_omni_vertex(
 	vec3 light_dir = omni_lights.data[idx].position - vertex;
 	float light_len = dot(light_dir, light_dir);
 	float light_len_rcp = inversesqrt(light_len);
-	light_len *= light_len_rcp;
-	light_dir *= light_len_rcp;
-	float omni_attenuation = get_omni_attenuation(light_len, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation);
+	light_dir *= light_len_rcp; light_len *= light_len_rcp;
 
-	// Compute area size.
-	float size = 0.0;
-	if (sc_use_light_soft_shadows() && omni_lights.data[idx].size > 0.0)
-	{
-		float t = half(omni_lights.data[idx].size * light_len_rcp);
-		size = max(0.0, 1.0 - inversesqrt(1.0 + t * t));
-	}
+	float area_radius = max(0.001, omni_lights.data[idx].size);
+	float omni_attenuation = get_distance_attenuation(light_len, omni_lights.data[idx].inv_radius, area_radius, omni_lights.data[idx].attenuation);
+	area_radius *= light_len_rcp;
 	
 #ifndef SHADOWS_DISABLED
 	if (omni_attenuation > HALF_FLT_MIN && omni_lights.data[idx].shadow_opacity > 0.001)
@@ -234,10 +249,12 @@ void light_process_omni_vertex(
 	}
 #endif // !SHADOWS_DISABLED
 
-	hvec3 color = hvec3(omni_lights.data[idx].color * omni_attenuation);
-
-	light_compute_vertex(normal, light_dir, eye_vec, size, color, roughness, omni_lights.data[idx].specular_amount,
-			diffuse_light, specular_light);
+	light_compute_vertex(
+			normal, light_dir, eye_vec, area_radius,
+			omni_lights.data[idx].color * omni_attenuation,
+			roughness, omni_lights.data[idx].specular_amount,
+			diffuse_light, specular_light
+	);
 }
 
 
@@ -248,20 +265,13 @@ void light_process_spot_vertex(
 	vec3 light_dir = spot_lights.data[idx].position - vertex;
 	float light_len = dot(light_dir, light_dir);
 	float light_len_rcp = inversesqrt(light_len);
-	light_len *= light_len_rcp;
-	light_dir *= light_len_rcp;
+	light_dir *= light_len_rcp; light_len *= light_len_rcp;
 
-	// Compute area size.
-	float size = 0.0;
-	if (sc_use_light_soft_shadows() && spot_lights.data[idx].size > 0.0)
-	{
-		float t = half(spot_lights.data[idx].size * light_len_rcp);
-		size = max(0.0, 1.0 - inversesqrt(1.0 + t * t));
-	}
+	float area_radius = max(0.001, spot_lights.data[idx].size);
+	float spot_attenuation = get_distance_attenuation(light_len, spot_lights.data[idx].inv_radius, area_radius, spot_lights.data[idx].attenuation);
+	area_radius *= light_len_rcp;
 
-	half spot_attenuation = get_omni_attenuation(light_len, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation);
-	hvec3 spot_dir = hvec3(spot_lights.data[idx].direction);
-
+	vec3 spot_dir = spot_lights.data[idx].direction;
 	float spot = clamp(acos(dot(-vec3(light_dir), spot_dir)) * spot_lights.data[idx].cone_angle, 0.0, 1.0);
 	spot = 1.0 - pow(spot, spot_lights.data[idx].cone_attenuation);
 	spot_attenuation *= half(spot * spot);
@@ -283,8 +293,10 @@ void light_process_spot_vertex(
 	}
 #endif // !SHADOWS_DISABLED
 
-	hvec3 color = hvec3(spot_lights.data[idx].color * spot_attenuation);
-
-	light_compute_vertex(normal, light_dir, eye_vec, size, color, roughness, spot_lights.data[idx].specular_amount,
-			diffuse_light, specular_light);
+	light_compute_vertex(
+			normal, light_dir, eye_vec, area_radius,
+			spot_lights.data[idx].color * spot_attenuation,
+			roughness, spot_lights.data[idx].specular_amount,
+			diffuse_light, specular_light
+	);
 }

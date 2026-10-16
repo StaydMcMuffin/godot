@@ -682,9 +682,8 @@ void vertex_shader(vec3 vertex_input,
 
 #endif // !SHADOWS_DISABLED
 	
-		float size_A = sc_use_directional_soft_shadows() ? light_data.size : 0.0;
 		light_compute_vertex(
-				normal_interp, light_data.direction, view, size_A, light_data.color * energy, roughness, light_data.specular,
+				normal_interp, light_data.direction, view, light_data.size, light_data.color * energy, roughness, light_data.specular,
 				diffuse_light_interp.rgb, specular_light_interp.rgb);
 	}
 
@@ -2384,7 +2383,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_pos = dot(light_data.direction, v.xyz);
 							float range_begin = light_data.shadow_range_begin.x;
 							float test_radius = (range_pos - range_begin) * light_data.softshadow_angle;
-							vec2 tex_scale = light_data.uv_scale1 * test_radius;
+							vec2 tex_scale = light_data.uv_scale[0].xy * test_radius;
 							shadow = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
 							blend_count++;
 						}
@@ -2400,7 +2399,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_pos = dot(light_data.direction, v.xyz);
 							float range_begin = light_data.shadow_range_begin.y;
 							float test_radius = (range_pos - range_begin) * light_data.softshadow_angle;
-							vec2 tex_scale = light_data.uv_scale2 * test_radius;
+							vec2 tex_scale = light_data.uv_scale[1].xy * test_radius;
 							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
 
 							if (blend_count == 0) {
@@ -2425,7 +2424,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_pos = dot(light_data.direction, v.xyz);
 							float range_begin = light_data.shadow_range_begin.z;
 							float test_radius = (range_pos - range_begin) * light_data.softshadow_angle;
-							vec2 tex_scale = light_data.uv_scale3 * test_radius;
+							vec2 tex_scale = light_data.uv_scale[2].xy * test_radius;
 							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
 
 							if (blend_count == 0) {
@@ -2450,7 +2449,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_pos = dot(light_data.direction, v.xyz);
 							float range_begin = light_data.shadow_range_begin.w;
 							float test_radius = (range_pos - range_begin) * light_data.softshadow_angle;
-							vec2 tex_scale = light_data.uv_scale4 * test_radius;
+							vec2 tex_scale = light_data.uv_scale[3].xy * test_radius;
 							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
 
 							if (blend_count == 0) {
@@ -2612,36 +2611,33 @@ void fragment_shader(in SceneData scene_data) {
 			shadow = 1.0;
 #endif
 
-			float size_A = sc_use_directional_soft_shadows() ? directional_lights.data[i].size : 0.0;
-
-			light_compute(normal, directional_lights.data[i].direction, normalize(view), size_A,
+			light_compute(
+					normal, directional_lights.data[i].direction, normalize(view), directional_lights.data[i].size,
 #ifndef DEBUG_DRAW_PSSM_SPLITS
 					directional_lights.data[i].color * directional_lights.data[i].energy,
 #else
 					directional_lights.data[i].color * directional_lights.data[i].energy * tint,
-#endif
-					true, shadow, f0, roughness, metallic, directional_lights.data[i].specular, albedo, alpha, screen_uv, energy_compensation,
+#endif // DEBUG_DRAW_PSSM_SPLITS
+					true, shadow, f0, roughness, metallic, directional_lights.data[i].specular, albedo,
+					alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 					backlight,
-#endif
+#endif // LIGHT_BACKLIGHT_USED
 #ifdef LIGHT_TRANSMITTANCE_USED
-					transmittance_color,
-					transmittance_depth,
-					transmittance_boost,
-					transmittance_z,
-#endif
+					transmittance_color, transmittance_depth,
+					transmittance_boost, transmittance_z,
+#endif // LIGHT_TRANSMITTANCE_USED
 #ifdef LIGHT_RIM_USED
 					rim, rim_tint,
-#endif
+#endif // LIGHT_RIM_USED
 #ifdef LIGHT_CLEARCOAT_USED
 					clearcoat, clearcoat_roughness, geo_normal,
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef LIGHT_ANISOTROPY_USED
-					binormal,
-					tangent, anisotropy,
-#endif
-					diffuse_light,
-					direct_specular_light);
+					binormal, tangent, anisotropy,
+#endif // LIGHT_ANISOTROPY_USED
+					diffuse_light, direct_specular_light
+			);
 		}
 #endif // !USE_VERTEX_LIGHTING
 	}
