@@ -174,7 +174,7 @@ KeepEmptyLinesAtTheStartOfBlocks: false
 # LineEnding: DeriveLF
 # MacroBlockBegin: ""
 # MacroBlockEnd: ""
-# MaxEmptyLinesToKeep: 1
+MaxEmptyLinesToKeep: 2
 # NamespaceIndentation: None
 # ObjCBinPackProtocolList: Auto
 ObjCBlockIndentWidth: 4

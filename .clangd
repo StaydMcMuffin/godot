@@ -15,6 +15,9 @@ Diagnostics:
     IgnoreHeader:
       - \.compat\.inc
 
+Documentation:
+  CommentFormat: Doxygen
+
 ---
 
 # Header-specific conditions.

@@ -192,7 +192,7 @@ float get_distance_attenuation (
 #else
 	// From "Point Light Attenuation Without Singularity" by Cem Yuksel
 	// ( http://www.cemyuksel.com/research/pointlightattenuation/pointlightattenuation.pdf )
-	float attenuation = (1.0 + area * area)  / (distance2 + area2 + distance * sqrt(distance2 + area2));
+	float attenuation = (1.0 + area2)  / (distance2 + area2 + distance * sqrt(distance2 + area2));
 	attenuation = pow(attenuation, decay * 0.5);
 #endif
 
@@ -200,37 +200,38 @@ float get_distance_attenuation (
 }
 
 
-void light_process_omni_vertex(
-		uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, half roughness,
-		inout hvec3 diffuse_light, inout hvec3 specular_light)
+void light_process_omni_vertex (
+		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+		inout vec3 diffuse_light, inout vec3 specular_light
+	)
 {
-	vec3 light_dir = omni_lights.data[idx].position - vertex;
+	const LightData light_data = omni_lights.data[idx];
+
+	vec3 light_dir = light_data.position - vertex;
 	float light_len = dot(light_dir, light_dir);
 	float light_len_rcp = inversesqrt(light_len);
 	light_dir *= light_len_rcp; light_len *= light_len_rcp;
 
-	float area_radius = max(0.001, omni_lights.data[idx].size);
-	float omni_attenuation = get_distance_attenuation(light_len, omni_lights.data[idx].inv_radius, area_radius, omni_lights.data[idx].attenuation);
+	// Spherical distance attenuation.
+	float area_radius = max(0.001, light_data.size);
+	float omni_attenuation = get_distance_attenuation(light_len, light_data.inv_radius, area_radius, light_data.attenuation);
 	area_radius *= light_len_rcp;
 	
 #ifndef SHADOWS_DISABLED
-	if (omni_attenuation > HALF_FLT_MIN && omni_lights.data[idx].shadow_opacity > 0.001)
+	if (omni_attenuation > HALF_FLT_MIN && light_data.shadow_opacity > 0.001)
 	{
 		vec2 texel_size = scene_data_block.data.shadow_atlas_pixel_size;
-		vec4 uv_rect = omni_lights.data[idx].atlas_rect;
-		uv_rect.xy += texel_size;
-		uv_rect.zw -= texel_size * 2.0;
+		vec4 uv_rect = light_data.atlas_rect + vec4(texel_size, texel_size * -2.0);
 
-		vec3 shadow_dir = (omni_lights.data[idx].shadow_matrix * vec4(vertex, 1.0)).xyz;
+		vec3 shadow_dir = (light_data.shadow_matrix * vec4(vertex, 1.0)).xyz;
 		float shadow_len = dot(shadow_dir, shadow_dir);
 		float shadow_len_rcp = inversesqrt(shadow_len);
-		shadow_len *= shadow_len_rcp;
-		shadow_dir *= shadow_len_rcp;
+		shadow_dir *= shadow_len_rcp; shadow_len *= shadow_len_rcp;
 
-		vec3 local_normal = normalize(mat3(omni_lights.data[idx].shadow_matrix) * vec3(normal));
-		vec3 normal_bias = local_normal * omni_lights.data[idx].shadow_normal_bias * (1.0 - abs(dot(local_normal, shadow_dir)));
+		vec3 local_normal = normalize(mat3(light_data.shadow_matrix) * normal);
+		vec3 normal_bias = local_normal * (light_data.shadow_normal_bias * (1.0 - abs(dot(local_normal, shadow_dir))));
 
-		vec2 flip_offset = omni_lights.data[idx].direction.xy;  // Omni lights use direction.xy to store the offset between the two paraboloid regions.
+		vec2 flip_offset = light_data.direction.xy;  // Omni lights use direction.xy to store the offset between the two paraboloid regions.
 		vec3 shadow_sample = normalize(shadow_dir + normal_bias);
 		if (shadow_sample.z >= 0.0)
 		{
@@ -238,65 +239,78 @@ void light_process_omni_vertex(
 			flip_offset *= -1.0;
 		}
 
-		shadow_sample.z = 1.0 + abs(shadow_sample.z);
-		vec2 pos = shadow_sample.xy / shadow_sample.z;
-		float depth = shadow_len - omni_lights.data[idx].shadow_bias;
-		depth *= omni_lights.data[idx].inv_radius;
-		depth = 1.0 - depth;
-		float shadow_blur_scale = omni_lights.data[idx].soft_shadow_scale / shadow_sample.z;
+		shadow_sample.z = 1.0 / (1.0 + abs(shadow_sample.z));
+		vec2 pos = shadow_sample.xy * shadow_sample.z;
+		float depth = shadow_len - light_data.shadow_bias;
+		depth = 1.0 - depth * light_data.inv_radius;
+		float shadow_blur_scale = light_data.soft_shadow_scale * shadow_sample.z;
 		shadow_blur_scale += sqrt(shadow_blur_scale);  // Boost shadow filter scale to reduce per-vertex aliasing.
-		omni_attenuation *= mix(half(1.0), sample_omni_pcf_shadow_vertex(shadow_atlas, shadow_blur_scale, pos, uv_rect, flip_offset, depth), half(omni_lights.data[idx].shadow_opacity));
+		float shadow = sample_omni_pcf_shadow_vertex(shadow_atlas, shadow_blur_scale, pos, uv_rect, flip_offset, depth);
+		omni_attenuation *= mix(1.0, shadow, light_data.shadow_opacity);
 	}
 #endif // !SHADOWS_DISABLED
 
 	light_compute_vertex(
 			normal, light_dir, eye_vec, area_radius,
-			omni_lights.data[idx].color * omni_attenuation,
-			roughness, omni_lights.data[idx].specular_amount,
+			light_data.color * omni_attenuation,
+			roughness, light_data.specular_amount,
 			diffuse_light, specular_light
 	);
 }
 
 
-void light_process_spot_vertex(
-		uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, half roughness,
-		inout hvec3 diffuse_light, inout hvec3 specular_light)
+void light_process_spot_vertex (
+		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+		inout vec3 diffuse_light, inout vec3 specular_light
+	)
 {
-	vec3 light_dir = spot_lights.data[idx].position - vertex;
+	const LightData light_data = spot_lights.data[idx];
+
+	vec3 light_dir = light_data.position - vertex;
 	float light_len = dot(light_dir, light_dir);
 	float light_len_rcp = inversesqrt(light_len);
 	light_dir *= light_len_rcp; light_len *= light_len_rcp;
 
-	float area_radius = max(0.001, spot_lights.data[idx].size);
-	float spot_attenuation = get_distance_attenuation(light_len, spot_lights.data[idx].inv_radius, area_radius, spot_lights.data[idx].attenuation);
+	// Spherical distance attenuation.
+	float area_radius = max(0.001, light_data.size);
+	float spot_attenuation = get_distance_attenuation(light_len, light_data.inv_radius, area_radius, light_data.attenuation);
 	area_radius *= light_len_rcp;
 
-	vec3 spot_dir = spot_lights.data[idx].direction;
-	float spot = clamp(acos(dot(-vec3(light_dir), spot_dir)) * spot_lights.data[idx].cone_angle, 0.0, 1.0);
-	spot = 1.0 - pow(spot, spot_lights.data[idx].cone_attenuation);
-	spot_attenuation *= half(spot * spot);
+	// Smoothly fade attenuation to 0 at near_clip over a distance of near_clip*2
+	float radial_factor = clamp(2.0 - light_data.cone_angle * M_PI, 0.0, 1.0);  // Blend from z-distance to radial distance when cone_angle > 90.
+	float clip_dist = max(0.0, mix(dot(-light_dir, light_data.direction), 1.0, radial_factor) * light_len);
+	float clip_fade = 1.0 - clamp(((clip_dist * light_data.near_clip_rcp) - 1.0) * 0.5, 0.0, 1.0);
+	clip_fade *= clip_fade; clip_fade *= clip_fade;
+	clip_fade = 1.0 - clip_fade; clip_fade *= clip_fade;
+	spot_attenuation *= clip_fade;
+
+	// Smooth cone falloff, provides adjustable sharpness while preventing discontinuities.
+	float spot = clamp(acos(dot(-light_dir, light_data.direction)) * light_data.cone_angle, 0.0, 1.0);
+	spot = 1.0 - pow(spot, light_data.cone_attenuation);
+	spot_attenuation *= spot * spot;
 
 #ifndef SHADOWS_DISABLED
-	if (spot_attenuation > HALF_FLT_MIN && spot_lights.data[idx].shadow_opacity > 0.001)
+	if (spot_attenuation > HALF_FLT_MIN && light_data.shadow_opacity > 0.001)
 	{
-		vec3 normal_bias = vec3(normal) * light_len * spot_lights.data[idx].shadow_normal_bias * (1.0 - abs(dot(normal, light_dir)));
+		vec3 normal_bias = normal * (light_len * light_data.shadow_normal_bias * (1.0 - abs(dot(normal, light_dir))));
 		vec4 v = vec4(vertex + normal_bias, 1.0);
 
-		vec4 splane = (spot_lights.data[idx].shadow_matrix * v);
-		splane.z += spot_lights.data[idx].shadow_bias;
+		vec4 splane = (light_data.shadow_matrix * v);
+		splane.z += light_data.shadow_bias;
 		splane /= splane.w;
 
-		vec3 shadow_uv = vec3(splane.xy * spot_lights.data[idx].atlas_rect.zw + spot_lights.data[idx].atlas_rect.xy, splane.z);
-		float shadow_blur_scale = spot_lights.data[idx].soft_shadow_scale;
+		vec3 shadow_uv = vec3(splane.xy * light_data.atlas_rect.zw + light_data.atlas_rect.xy, splane.z);
+		float shadow_blur_scale = light_data.soft_shadow_scale;
 		shadow_blur_scale += sqrt(shadow_blur_scale);  // Boost shadow filter scale to reduce per-vertex aliasing.
-		spot_attenuation *= mix(half(1.0), sample_pcf_shadow_vertex(shadow_atlas, scene_data_block.data.shadow_atlas_pixel_size * shadow_blur_scale, shadow_uv), half(spot_lights.data[idx].shadow_opacity));
+		float shadow = sample_pcf_shadow_vertex(shadow_atlas, scene_data_block.data.shadow_atlas_pixel_size * shadow_blur_scale, shadow_uv);
+		spot_attenuation *= mix(1.0, shadow, light_data.shadow_opacity);
 	}
 #endif // !SHADOWS_DISABLED
 
 	light_compute_vertex(
 			normal, light_dir, eye_vec, area_radius,
-			spot_lights.data[idx].color * spot_attenuation,
-			roughness, spot_lights.data[idx].specular_amount,
+			light_data.color * spot_attenuation,
+			roughness, light_data.specular_amount,
 			diffuse_light, specular_light
 	);
 }

@@ -17,14 +17,17 @@
 		<member name="omni_attenuation" type="float" setter="set_param" getter="get_param" default="1.0">
 			Controls the distance attenuation function for omnilights.
 			A value of [code]0.0[/code] will maintain a constant brightness through most of the range, but smoothly attenuate the light at the edge of the range. Use a value of [code]2.0[/code] for physically accurate lights as it results in the proper inverse square attenutation.
-			[b]Note:[/b] Setting attenuation to [code]2.0[/code] or higher may result in distant objects receiving minimal light, even within range. For example, with a range of [code]4096[/code], an object at [code]100[/code] units is attenuated by a factor of [code]0.0001[/code]. With a default brightness of [code]1[/code], the light would not be visible at that distance.
-			[b]Note:[/b] Using negative or values higher than [code]10.0[/code] may lead to unexpected results.
 		</member>
 		<member name="omni_range" type="float" setter="set_param" getter="get_param" default="5.0">
 			The light's radius. Note that the effectively lit area may appear to be smaller depending on the [member omni_attenuation] in use. No matter the [member omni_attenuation] in use, the light will never reach anything outside this radius.
 			[b]Note:[/b] [member omni_range] is not affected by [member Node3D.scale] (the light's scale or its parent's scale).
 		</member>
 		<member name="omni_shadow_mode" type="int" setter="set_shadow_mode" getter="get_shadow_mode" enum="OmniLight3D.ShadowMode" default="1">
+		</member>
+		<member name="omni_near_clip" type="float" setter="set_param" getter="get_param" default="0.025">
+			Minimum distance (in meters) a surface must be from the light source before it can cast shadows; in other words, the point at which shadows "start" to be cast, or the light's "near-plane."
+			Increasing this can be useful for removing unwanted shadows cast by geometry close to a light source, such as from the inside of a lantern or similar light fixture.
+			[b]Note:[/b] Unlike the similar [member SpotLight3D.spot_near_clip] property, [member omni_near_clip] does [i]not[/i] prevent surfaces close to the light from being illuminated by it.
 		</member>
 		<member name="shadow_normal_bias" type="float" setter="set_param" getter="get_param" overrides="Light3D" default="1.0" />
 	</members>

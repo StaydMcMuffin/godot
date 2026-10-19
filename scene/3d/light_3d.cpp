@@ -501,6 +501,7 @@ void Light3D::_bind_methods()
 	BIND_ENUM_CONSTANT(PARAM_ATTENUATION);
 	BIND_ENUM_CONSTANT(PARAM_SPOT_ANGLE);
 	BIND_ENUM_CONSTANT(PARAM_SPOT_ATTENUATION);
+	BIND_ENUM_CONSTANT(PARAM_NEAR_CLIP);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_MAX_DISTANCE);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_SPLIT_1_OFFSET);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_SPLIT_2_OFFSET);
@@ -563,6 +564,7 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_param(PARAM_ATTENUATION, 1);
 	set_param(PARAM_SPOT_ANGLE, 45);
 	set_param(PARAM_SPOT_ATTENUATION, 1);
+	set_param(PARAM_NEAR_CLIP, 0.025);
 	set_param(PARAM_SHADOW_MAX_DISTANCE, 0);
 	set_param(PARAM_SHADOW_SPLIT_1_OFFSET, 0.1);
 	set_param(PARAM_SHADOW_SPLIT_2_OFFSET, 0.2);
@@ -717,9 +719,10 @@ void OmniLight3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_shadow_mode"), &OmniLight3D::get_shadow_mode);
 
 	ADD_GROUP_NOFOLD("Omni", "omni_");
-	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_range", PROPERTY_HINT_RANGE, "0,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_range", PROPERTY_HINT_RANGE, "0.001,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_attenuation", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_param", "get_param", PARAM_ATTENUATION);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "omni_shadow_mode", PROPERTY_HINT_ENUM, "Dual Paraboloid,Cube"), "set_shadow_mode", "get_shadow_mode");
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_near_clip", PROPERTY_HINT_RANGE, "0.001,16,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_NEAR_CLIP);
 
 	BIND_ENUM_CONSTANT(SHADOW_DUAL_PARABOLOID);
 	BIND_ENUM_CONSTANT(SHADOW_CUBE);
@@ -747,7 +750,8 @@ PackedStringArray SpotLight3D::get_configuration_warnings() const {
 void SpotLight3D::_bind_methods()
 {
 	ADD_GROUP_NOFOLD("Spot", "spot_");
-	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_range", PROPERTY_HINT_RANGE, "0,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_range", PROPERTY_HINT_RANGE, "0.001,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_near_clip", PROPERTY_HINT_RANGE, "0.001,16,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_NEAR_CLIP);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_attenuation", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_param", "get_param", PARAM_ATTENUATION);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle", PROPERTY_HINT_RANGE, "0,180,0.01,degrees"), "set_param", "get_param", PARAM_SPOT_ANGLE);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle_attenuation", PROPERTY_HINT_EXP_EASING, "attenuation,positive_only"), "set_param", "get_param", PARAM_SPOT_ATTENUATION);

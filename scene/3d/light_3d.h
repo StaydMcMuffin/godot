@@ -32,7 +32,8 @@
 
 #include "scene/3d/visual_instance_3d.h"
 
-class Light3D : public VisualInstance3D {
+class Light3D : public VisualInstance3D
+{
 	GDCLASS(Light3D, VisualInstance3D);
 
 public:
@@ -47,6 +48,7 @@ public:
 		PARAM_ATTENUATION = RSE::LIGHT_PARAM_ATTENUATION,
 		PARAM_SPOT_ANGLE = RSE::LIGHT_PARAM_SPOT_ANGLE,
 		PARAM_SPOT_ATTENUATION = RSE::LIGHT_PARAM_SPOT_ATTENUATION,
+		PARAM_NEAR_CLIP = RSE::LIGHT_PARAM_NEAR_CLIP,
 		PARAM_SHADOW_MAX_DISTANCE = RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE,
 		PARAM_SHADOW_SPLIT_1_OFFSET = RSE::LIGHT_PARAM_SHADOW_SPLIT_1_OFFSET,
 		PARAM_SHADOW_SPLIT_2_OFFSET = RSE::LIGHT_PARAM_SHADOW_SPLIT_2_OFFSET,
@@ -100,7 +102,6 @@ private:
 	bool projector_enabled = false;
 	Color correlated_color = Color(1.0, 1.0, 1.0);
 	float temperature = 6500.0;
-	// bind helpers
 
 	virtual void owner_changed_notify() override;
 

@@ -2367,11 +2367,22 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 	}
 }
 
-bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, RID p_shadow_atlas, Scenario *p_scenario, float p_screen_mesh_lod_threshold, uint32_t p_visible_layers) {
+bool RendererSceneCull::_light_instance_update_shadow (
+		Instance *p_instance,
+  const	Transform3D p_cam_transform,
+  const	Projection &p_cam_projection,
+		bool p_cam_orthogonal,
+		bool p_cam_vaspect,
+		RID p_shadow_atlas,
+		Scenario *p_scenario,
+		float p_screen_mesh_lod_threshold,
+		uint32_t p_visible_layers
+	)
+{
 	InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
 
 	Transform3D light_transform = p_instance->transform;
-	light_transform.orthonormalize(); //scale does not count on lights
+	light_transform.orthonormalize();  // Transform scale is ignored for lights.
 
 	bool animated_material_found = false;
 
@@ -2385,25 +2396,28 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 			if (shadow_mode == RSE::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID || !RSG::light_storage->light_instances_can_render_shadow_cube())
 			{
+				// Dual Paraboloid Shadows //
 				if (max_shadows_used + 2 > MAX_UPDATE_SHADOWS)
 					return true;
 
+				// Setup and cull projections for both paraboloid sides.
 				for (int i = 0; i < 2; i++)
 				{
-					//using this one ensures that raster deferred will have it
 					RENDER_TIMESTAMP("Cull OmniLight3D Shadow Paraboloid, Half " + itos(i));
 
-					real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
+					const real_t range = MAX(0.002, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE));
+					const real_t z_near = MAX(0.001, MIN(range - 0.001, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_NEAR_CLIP)));
 
+					constexpr real_t n = 1.0 / Math::SQRT2;
 					real_t z = i == 0 ? -1 : 1;
 					Vector<Plane> planes;
 					planes.resize(6);
-					planes.write[0] = light_transform.xform(Plane(Vector3(0, 0, z), radius));
-					planes.write[1] = light_transform.xform(Plane(Vector3(1, 0, z).normalized(), radius));
-					planes.write[2] = light_transform.xform(Plane(Vector3(-1, 0, z).normalized(), radius));
-					planes.write[3] = light_transform.xform(Plane(Vector3(0, 1, z).normalized(), radius));
-					planes.write[4] = light_transform.xform(Plane(Vector3(0, -1, z).normalized(), radius));
-					planes.write[5] = light_transform.xform(Plane(Vector3(0, 0, -z), 0));
+					planes.write[0] = light_transform.xform(Plane(Vector3( 0, 0, z), range));
+					planes.write[1] = light_transform.xform(Plane(Vector3( 1, 0, z) * n, range));
+					planes.write[2] = light_transform.xform(Plane(Vector3(-1, 0, z) * n, range));
+					planes.write[3] = light_transform.xform(Plane(Vector3( 0, 1, z) * n, range));
+					planes.write[4] = light_transform.xform(Plane(Vector3( 0,-1, z) * n, range));
+					planes.write[5] = light_transform.xform(Plane(Vector3( 0, 0,-z), z_near));
 
 					instance_shadow_cull_result.clear();
 
@@ -2449,42 +2463,49 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 					RSG::mesh_storage->update_mesh_instances();
 
-					RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, i, 0);
+					Projection cm;
+					cm.adjust_perspective_znear(z_near);
+
+					RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, range, 0, i, 0);
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
 				}
 			}
 			else
-			{ //shadow cube
+			{
+				// Cube Shadows //
 				if (max_shadows_used + 6 > MAX_UPDATE_SHADOWS)
 					return true;
 
-				real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
-				real_t z_near = MIN(0.025f, radius);
+				const real_t range = MAX(0.002, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE));
+				const real_t z_near = MAX(0.001, MIN(range - 0.001, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_NEAR_CLIP)));
+				
 				Projection cm;
-				cm.set_perspective(90, 1, z_near, radius);
+				cm.set_perspective(90, 1, z_near, range);
 
+				static const Vector3 view_normals[6] =
+				{
+					Vector3(+1, 0, 0),
+					Vector3(-1, 0, 0),
+					Vector3( 0,-1, 0),
+					Vector3( 0,+1, 0),
+					Vector3( 0, 0,+1),
+					Vector3( 0, 0,-1)
+				};
+				static const Vector3 view_up[6] =
+				{
+					Vector3( 0,-1, 0),
+					Vector3( 0,-1, 0),
+					Vector3( 0, 0,-1),
+					Vector3( 0, 0,+1),
+					Vector3( 0,-1, 0),
+					Vector3( 0,-1, 0)
+				};
+
+				// Setup and cull projections for all 6 cube faces.
 				for (int i = 0; i < 6; i++)
 				{
 					RENDER_TIMESTAMP("Cull OmniLight3D Shadow Cube, Side " + itos(i));
-					//using this one ensures that raster deferred will have it
-
-					static const Vector3 view_normals[6] = {
-						Vector3(+1, 0, 0),
-						Vector3(-1, 0, 0),
-						Vector3(0, -1, 0),
-						Vector3(0, +1, 0),
-						Vector3(0, 0, +1),
-						Vector3(0, 0, -1)
-					};
-					static const Vector3 view_up[6] = {
-						Vector3(0, -1, 0),
-						Vector3(0, -1, 0),
-						Vector3(0, 0, -1),
-						Vector3(0, 0, +1),
-						Vector3(0, -1, 0),
-						Vector3(0, -1, 0)
-					};
 
 					Transform3D xform = light_transform * Transform3D().looking_at(view_normals[i], view_up[i]);
 
@@ -2532,16 +2553,12 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					}
 
 					RSG::mesh_storage->update_mesh_instances();
-					RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, xform, radius, 0, i, 0);
+					RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, xform, range, 0, i, 0);
 
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
 				}
-
-				//restore the regular DP matrix
-				//RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, 0, 0);
 			}
-
 		} break;
 		case RSE::LIGHT_SPOT:
 		{
@@ -2550,12 +2567,12 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 			RENDER_TIMESTAMP("Cull SpotLight3D Shadow");
 
-			real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
-			real_t angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
-			real_t z_near = MIN(0.025f, radius);
+			const real_t range = MAX(0.002, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE));
+			const real_t z_near = MAX(0.001, MIN(range - 0.001, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_NEAR_CLIP)));
+			const real_t angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
 
 			Projection cm;
-			cm.set_perspective(angle * 2.0, 1.0, z_near, radius);
+			cm.set_perspective(angle * 2.0, 1.0, z_near, range);
 
 			Vector<Plane> planes = cm.get_projection_planes(light_transform);
 
@@ -2601,11 +2618,10 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			}
 
 			RSG::mesh_storage->update_mesh_instances();
+			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, range, 0, 0, 0);
 
-			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
 			shadow_data.pass = 0;
-
 		} break;
 		case RSE::LIGHT_AREA:
 		{
@@ -2614,18 +2630,17 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 			RENDER_TIMESTAMP("Cull AreaLight3D Shadow Paraboloid");
 
-			real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
-			Vector2 half_size = RSG::light_storage->light_area_get_size(p_instance->base) / 2.0;
+			const real_t range = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
+			const Vector2 half_size = RSG::light_storage->light_area_get_size(p_instance->base) / 2.0;
 
-			real_t z = -1;
 			Vector<Plane> planes;
 			planes.resize(6);
-			planes.write[0] = light_transform.xform(Plane(Vector3(0, 0, z), radius));
-			planes.write[1] = light_transform.xform(Plane(Vector3(1, 0, 0).normalized(), radius + half_size.x));
-			planes.write[2] = light_transform.xform(Plane(Vector3(-1, 0, 0).normalized(), radius + half_size.x));
-			planes.write[3] = light_transform.xform(Plane(Vector3(0, 1, 0).normalized(), radius + half_size.y));
-			planes.write[4] = light_transform.xform(Plane(Vector3(0, -1, 0).normalized(), radius + half_size.y));
-			planes.write[5] = light_transform.xform(Plane(Vector3(0, 0, -z), 0));
+			planes.write[0] = light_transform.xform(Plane(Vector3( 0, 0,-1), range));
+			planes.write[1] = light_transform.xform(Plane(Vector3( 1, 0, 0), range + half_size.x));
+			planes.write[2] = light_transform.xform(Plane(Vector3(-1, 0, 0), range + half_size.x));
+			planes.write[3] = light_transform.xform(Plane(Vector3( 0, 1, 0), range + half_size.y));
+			planes.write[4] = light_transform.xform(Plane(Vector3( 0,-1, 0), range + half_size.y));
+			planes.write[5] = light_transform.xform(Plane(Vector3( 0, 0, 1), 0));
 
 			instance_shadow_cull_result.clear();
 
@@ -2670,8 +2685,8 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			}
 
 			RSG::mesh_storage->update_mesh_instances();
+			RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, range, 0, 0, 0);
 
-			RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
 			shadow_data.pass = 0;
 		}
@@ -3518,94 +3533,103 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			if (!RSG::light_storage->light_instance_is_shadow_visible_at_position(light->instance, camera_position))
 				continue;
 
+			// Compute approximate light coverage.
 			float coverage = 0.0;
-			{ //compute coverage
-
+			{ 
 				Transform3D cam_xf = p_camera_data->main_transform;
 				float zn = p_camera_data->main_projection.get_z_near();
-				Plane p(-cam_xf.basis.get_column(2), cam_xf.origin + cam_xf.basis.get_column(2) * -zn); //camera near plane
+				Plane p(-cam_xf.basis.get_column(2), cam_xf.origin + cam_xf.basis.get_column(2) * -zn);  // Camera near plane.
 
-				// near plane half width and height
+				// Half of near plane width and height.
 				Vector2 vp_half_extents = p_camera_data->main_projection.get_viewport_half_extents();
 
-				switch (RSG::light_storage->light_get_type(ins->base)) {
-					case RSE::LIGHT_OMNI: {
-						float radius = RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE);
+				switch (RSG::light_storage->light_get_type(ins->base))
+				{
+					case RSE::LIGHT_OMNI:
+					{
+						const real_t range = MAX(0.002, RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE));
 
-						//get two points parallel to near plane
-						Vector3 points[2] = {
+						// Get two points parallel to near plane.
+						Vector3 points[2] =
+						{
 							ins->transform.origin,
-							ins->transform.origin + cam_xf.basis.get_column(0) * radius
+							ins->transform.origin + cam_xf.basis.get_column(0) * range
 						};
 
-						if (!p_camera_data->is_orthogonal) {
-							//if using perspetive, map them to near plane
-							for (int j = 0; j < 2; j++) {
-								if (p.distance_to(points[j]) < 0) {
-									points[j].z = -zn; //small hack to keep size constant when hitting the screen
-								}
-
-								p.intersects_segment(cam_xf.origin, points[j], &points[j]); //map to plane
+						if (!p_camera_data->is_orthogonal)
+						{
+							// If using perspective, map points to near plane.
+							for (int j = 0; j < 2; j++)
+							{
+								if (p.distance_to(points[j]) < 0.0)
+									points[j].z = -zn;  // Keep size constant when line segment intersects the near plane.
+								p.intersects_segment(cam_xf.origin, points[j], &points[j]);
 							}
 						}
 
-						float screen_diameter = points[0].distance_to(points[1]) * 2;
+						float screen_diameter = points[0].distance_to(points[1]) * 2.0;
 						coverage = screen_diameter / (vp_half_extents.x + vp_half_extents.y);
 					} break;
-					case RSE::LIGHT_SPOT: {
-						float radius = RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE);
-						float angle = RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
+					case RSE::LIGHT_SPOT:
+					{
+						const real_t range = MAX(0.002, RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE));
+						const real_t z_near = MAX(0.001, MIN(range - 0.001, RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_NEAR_CLIP)));
+						const real_t angle = Math::deg_to_rad(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_SPOT_ANGLE));
 
-						float w = radius * Math::sin(Math::deg_to_rad(angle));
-						float d = radius * Math::cos(Math::deg_to_rad(angle));
+						float w = (range - z_near) * Math::sin(angle);
+						float d = range * Math::cos(angle);
 
+						// Position at the base of the spot cone, ie. the _end_ of the light's range.
 						Vector3 base = ins->transform.origin - ins->transform.basis.get_column(2).normalized() * d;
 
-						Vector3 points[2] = {
+						Vector3 points[2] =
+						{
 							base,
 							base + cam_xf.basis.get_column(0) * w
 						};
 
-						if (!p_camera_data->is_orthogonal) {
-							//if using perspetive, map them to near plane
-							for (int j = 0; j < 2; j++) {
-								if (p.distance_to(points[j]) < 0) {
-									points[j].z = -zn; //small hack to keep size constant when hitting the screen
-								}
-
-								p.intersects_segment(cam_xf.origin, points[j], &points[j]); //map to plane
+						if (!p_camera_data->is_orthogonal)
+						{
+							// If using perspective, map points to near plane.
+							for (int j = 0; j < 2; j++)
+							{
+								if (p.distance_to(points[j]) < 0.0)
+									points[j].z = -zn;  // Keep size constant when line segment intersects the near plane.
+								p.intersects_segment(cam_xf.origin, points[j], &points[j]);
 							}
 						}
 
-						float screen_diameter = points[0].distance_to(points[1]) * 2;
+						float screen_diameter = points[0].distance_to(points[1]) * 2.0;
 						coverage = screen_diameter / (vp_half_extents.x + vp_half_extents.y);
-
 					} break;
-					case RSE::LIGHT_AREA: {
-						float diagonal = RSG::light_storage->light_area_get_size(ins->base).length();
-						float radius = RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE) + diagonal;
+					case RSE::LIGHT_AREA:
+					{
+						const real_t diagonal = MAX(0.001, RSG::light_storage->light_area_get_size(ins->base).length());
+						const real_t range = MAX(0.001, RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE)) + diagonal;
 
-						//get two points parallel to near plane
-						Vector3 points[2] = {
+						// Get two points parallel to near plane.
+						Vector3 points[2] =
+						{
 							ins->transform.origin,
-							ins->transform.origin + cam_xf.basis.get_column(0) * radius
+							ins->transform.origin + cam_xf.basis.get_column(0) * range
 						};
 
-						if (!p_camera_data->is_orthogonal) {
-							//if using perspetive, map them to near plane
-							for (int j = 0; j < 2; j++) {
-								if (p.distance_to(points[j]) < 0) {
-									points[j].z = -zn; //small hack to keep size constant when hitting the screen
-								}
-
-								p.intersects_segment(cam_xf.origin, points[j], &points[j]); //map to plane
+						if (!p_camera_data->is_orthogonal)
+						{
+							// If using perspective, map points to near plane.
+							for (int j = 0; j < 2; j++)
+							{
+								if (p.distance_to(points[j]) < 0)
+									points[j].z = -zn;  // Keep size constant when line segment intersects the near plane.
+								p.intersects_segment(cam_xf.origin, points[j], &points[j]);
 							}
 						}
 
 						float screen_diameter = points[0].distance_to(points[1]) * 2;
 						coverage = screen_diameter / (vp_half_extents.x + vp_half_extents.y);
 					} break;
-					default: {
+					default:
+					{
 						ERR_PRINT("Invalid Light Type");
 					}
 				}

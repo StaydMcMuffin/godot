@@ -44,9 +44,16 @@ class RenderDataRD;
 
 namespace RendererRD {
 
-class LightStorage : public RendererLightStorage {
+class LightStorage : public RendererLightStorage
+{
 public:
-	enum ShadowAtlastQuadrant : uint32_t {
+#if 0
+	static constexpr float LIGHT_MIN_RANGE = 0.002;
+	static constexpr float LIGHT_DEFAULT_NEAR_CLIP = 0.025;
+	static constexpr float LIGHT_MIN_NEAR_CLIP = 0.001;
+#endif
+	enum ShadowAtlastQuadrant : uint32_t
+	{
 		QUADRANT_SHIFT = 27,
 		OMNI_LIGHT_FLAG = 1 << 26,
 		SHADOW_INDEX_MASK = OMNI_LIGHT_FLAG - 1,
@@ -135,42 +142,75 @@ private:
 
 	mutable RID_Owner<LightInstance> light_instance_owner;
 
-	/* POSITIONAL LIGHT DATA */
+
+	/**
+	 * CPU-side struct backing GPU-side SSBOs for `OmniLight3D`, `SpotLight3D`, and `AreaLight3D`.
+	 * 
+	 * Data in this struct is passed to the shader via `std430` SSBOs, and so must respect \b 16-byte alignment to avoid wasting memory.
+	 */
 	struct LightData
 	{
+		/** `vec3` representing the light's position in world-space. */
 		float position[3];
+		/** Reciprocal of the light's influence range in meters. */
 		float inv_radius;
-		float direction[3]; // in omni, x and y are used for dual paraboloid offset
+	//	----
+		/**
+		 * \b `SpotLight3D`/`AreaLight3D`: Normalized `vec3` representing the light's "facing" direction in world-space.
+		 * \b `OmniLight3D`: `vec2` dual-paraboloid offset, `z` unused.
+		 */
+		float direction[3];
+		/**
+		 * \b `OmniLight3D`/`SpotLight3D`: Radius of the light's emission sphere in meters. `0` for punctual lights.
+		 */
 		float size;
-
+	//	----
+		/** `vec3` representing the scene-linear RGB color emitted by the light, scaled by its `energy` parameter. */
 		float color[3];
+		/** Scalar in the range `[0.0, 2.0]` controlling the light's distance attenuation curve. */
 		float attenuation;
-
+	//	----
 		float area_width[3];
-		float inv_spot_attenuation; // Omni/spot: pow(exp2(max projector mip - 1) - 1, 2); Area: 1 / (range + diagonal/2)
-
+		/**
+		 * \e without Projector:
+		 * `SpotLight3D`: Reciprocal of the light's spot attenutation factor.
+		 * \n
+		 * \e with Projector:
+		 * \b `OmniLight3D`/`SpotLight3D`: `pow(exp2(max_projector_mip - 1) - 1, 2)` \n
+		 * \b `AreaLight3D`: `1 / (range + diagonal/2)`
+		 */
+		float inv_spot_attenuation;
+	//	----
 		float area_height[3];
-		float cos_spot_angle; // area lights: max mipmaps
-
+		/**
+		 * \b `SpotLight3D`: Reciprocal of spot cone angle, in radians.
+		 * \b `AreaLight3D`: Mipmap count.
+		 */
+		float spot_angle_rcp;
+	//	----
 		float specular_amount;
 		float shadow_opacity;
 		float projector_blur_scale;
-		float pad;
-
-		float atlas_rect[4]; // in omni, used for atlas uv, in spot, used for projector uv
+		float near_clip_rcp;
+	//	----
+		/** `vec4` representing the position (`xy`) and scale (`zw`) of the light's shadow map in the global shadow atlas. */
+		float atlas_rect[4];
+	//	----
 		float shadow_matrix[16];
-
+	//	----
 		float shadow_bias;
 		float shadow_normal_bias;
 		float transmittance_bias;
 		float soft_shadow_size;
-		
+	//	----
 		float soft_shadow_scale;
 		uint32_t mask;
 		float volumetric_fog_energy;
 		uint32_t bake_mode;
+	//	----
 		float projector_rect[4];
 	};
+
 
 	struct LightInstanceDepthSort {
 		float depth;
@@ -616,6 +656,41 @@ public:
 
 		return light->reverse_cull;
 	}
+
+#if 0
+	/**
+	 * Retrieve the `range` parameter for the given \a p_light .
+	 * \param p_light `RID` of the `Light` for which the parameter is retrieved.
+	 * \returns Value of the parameter at `LIGHT_PARAM_RANGE`, clamped to usable range.
+	 */
+	_FORCE_INLINE_
+	float light_get_range(
+			RID p_light
+		) const
+	{
+		const Light *light = light_owner.get_or_null(p_light);
+		ERR_FAIL_NULL_V(light, LIGHT_MIN_RANGE);
+
+		return MAX(LIGHT_MIN_RANGE, light->param[RSE::LIGHT_PARAM_RANGE]);
+	}
+
+	/**
+	 * Retrieve the `near_clip` parameter for the given \a p_light .
+	 * \param p_light `RID` of the `Light` for which the parameter is retrieved.
+	 * \returns Value of the parameter at `LIGHT_PARAM_NEAR_CLIP`, clamped to usable range.
+	 */
+	_FORCE_INLINE_
+	float light_get_near_clip(
+			RID p_light
+		) const
+	{
+		const Light *light = light_owner.get_or_null(p_light);
+		ERR_FAIL_NULL_V(light, LIGHT_DEFAULT_NEAR_CLIP);
+
+		const float range = light_get_range(p_light);
+		return MAX(LIGHT_MIN_NEAR_CLIP, MIN(range - (LIGHT_MIN_RANGE - LIGHT_MIN_NEAR_CLIP), light->param[RSE::LIGHT_PARAM_NEAR_CLIP]));
+	}
+#endif
 
 	virtual RSE::LightBakeMode light_get_bake_mode(RID p_light) override;
 	virtual uint32_t light_get_max_sdfgi_cascade(RID p_light) override;

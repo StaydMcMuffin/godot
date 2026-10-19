@@ -151,6 +151,7 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_ATTENUATION] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SPOT_ANGLE] = 45;
 	light.param[RSE::LIGHT_PARAM_SPOT_ATTENUATION] = 1.0;
+	light.param[RSE::LIGHT_PARAM_NEAR_CLIP] = 0.025;
 	light.param[RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE] = 0;
 	light.param[RSE::LIGHT_PARAM_SHADOW_SPLIT_1_OFFSET] = 0.1;
 	light.param[RSE::LIGHT_PARAM_SHADOW_SPLIT_2_OFFSET] = 0.3;
@@ -216,48 +217,59 @@ void LightStorage::light_set_color(RID p_light, const Color &p_color) {
 	light->color = p_color;
 }
 
-void LightStorage::light_set_param(RID p_light, RSE::LightParam p_param, float p_value) {
+
+void LightStorage::light_set_param (
+		RID				p_light,
+		RSE::LightParam	p_param,
+		float			p_value
+	)
+{
 	Light *light = light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(light);
+
 	ERR_FAIL_INDEX(p_param, RSE::LIGHT_PARAM_MAX);
-
-	if (light->param[p_param] == p_value) {
+	if (light->param[p_param] == p_value)
 		return;
-	}
 
-	switch (p_param) {
+	switch (p_param)
+	{
 		case RSE::LIGHT_PARAM_RANGE:
 		case RSE::LIGHT_PARAM_SPOT_ANGLE:
+		case RSE::LIGHT_PARAM_NEAR_CLIP:
 		case RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_1_OFFSET:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_2_OFFSET:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_3_OFFSET:
 		case RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS:
 		case RSE::LIGHT_PARAM_SHADOW_PANCAKE_SIZE:
-		case RSE::LIGHT_PARAM_SHADOW_BIAS: {
+		case RSE::LIGHT_PARAM_SHADOW_BIAS:
+		{
 			light->version++;
 			light->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_LIGHT);
 		} break;
-		case RSE::LIGHT_PARAM_SIZE: {
-			if ((light->param[p_param] > CMP_EPSILON) != (p_value > CMP_EPSILON)) {
-				//changing from no size to size and the opposite
+		case RSE::LIGHT_PARAM_SIZE:
+		{
+			// Only notify when changing to or from a size of 0.
+			if ((light->param[p_param] > CMP_EPSILON) != (p_value > CMP_EPSILON))
 				light->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_LIGHT_SOFT_SHADOW_AND_PROJECTOR);
-			}
 		} break;
-		default: {
-		}
+		default: {}
 	}
 
 	light->param[p_param] = p_value;
 }
 
 
-void LightStorage::light_set_flag(RID p_light, RSE::LightFlag p_flag, bool p_enable)
+void LightStorage::light_set_flag (
+		RID				p_light,
+		RSE::LightFlag	p_flag,
+		bool			p_enable
+	)
 {
 	Light *light = light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(light);
-	ERR_FAIL_INDEX(p_flag, RSE::LIGHT_FLAG_MAX);
 
+	ERR_FAIL_INDEX(p_flag, RSE::LIGHT_FLAG_MAX);
 	if (light->flags[p_flag] == p_enable)
 		return;
 
@@ -530,40 +542,48 @@ uint32_t LightStorage::light_get_cull_mask(RID p_light) const {
 	return light->cull_mask;
 }
 
-AABB LightStorage::light_get_aabb(RID p_light) const {
+
+AABB LightStorage::light_get_aabb (
+		RID p_light
+	) const
+{
 	const Light *light = light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL_V(light, AABB());
 
-	switch (light->type) {
-		case RSE::LIGHT_SPOT: {
-			float len = light->param[RSE::LIGHT_PARAM_RANGE];
-			float angle = Math::deg_to_rad(light->param[RSE::LIGHT_PARAM_SPOT_ANGLE]);
+	switch (light->type)
+	{
+		case RSE::LIGHT_SPOT:
+		{
+			const float range = MAX(0.002, light->param[RSE::LIGHT_PARAM_RANGE]);
+			const float angle = light->param[RSE::LIGHT_PARAM_SPOT_ANGLE];
 
-			if (angle > Math::PI * 0.5) {
-				// Light casts backwards as well.
-				return AABB(Vector3(-1, -1, -1) * len, Vector3(2, 2, 2) * len);
-			}
+			if (angle > 90.0)  // Light casts backwards as well, fall back to sphere AABB.
+				return AABB(Vector3(-1, -1, -1) * range, Vector3(2, 2, 2) * range);
 
-			float size = Math::sin(angle) * len;
-			return AABB(Vector3(-size, -size, -len), Vector3(size * 2, size * 2, len));
+			const float z_near = MAX(0.001, MIN(range - 0.001, light->param[RSE::LIGHT_PARAM_NEAR_CLIP]));
+			const float size = Math::sin(Math::deg_to_rad(angle)) * range;
+			return AABB(Vector3(-size, -size, -range), Vector3(size * 2, size * 2, range - z_near));
 		};
-		case RSE::LIGHT_OMNI: {
-			float r = light->param[RSE::LIGHT_PARAM_RANGE];
-			return AABB(-Vector3(r, r, r), Vector3(r, r, r) * 2);
+		case RSE::LIGHT_OMNI:
+		{
+			const float range = MAX(0.002, light->param[RSE::LIGHT_PARAM_RANGE]);
+			return AABB(-Vector3(range, range, range), Vector3(range, range, range) * 2);
 		};
-		case RSE::LIGHT_AREA: {
-			float len = light->param[RSE::LIGHT_PARAM_RANGE];
-			float width = light->area_size.x / 2.0 + len;
-			float height = light->area_size.y / 2.0 + len;
-			return AABB(-Vector3(width, height, 0), Vector3(width * 2, height * 2, -len));
+		case RSE::LIGHT_AREA:
+		{
+			const float range = MAX(0.002, light->param[RSE::LIGHT_PARAM_RANGE]);
+			const float width = light->area_size.x / 2.0 + range;
+			const float height = light->area_size.y / 2.0 + range;
+			return AABB(Vector3(-width, -height, -range), Vector3(width * 2, height * 2, range));
 		};
-		case RSE::LIGHT_DIRECTIONAL: {
+		case RSE::LIGHT_DIRECTIONAL:
+		{
 			return AABB();
 		};
 	}
-
 	ERR_FAIL_V(AABB());
 }
+
 
 Dependency *LightStorage::light_get_dependency(RID p_light) const {
 	Light *light = light_owner.get_or_null(p_light);
@@ -819,7 +839,7 @@ void LightStorage::update_light_buffers(
 					light_data.blend_splits = (smode != RSE::LIGHT_DIRECTIONAL_SHADOW_ORTHOGONAL) && light->directional_blend_splits;
 
 					light_data.shadow_opacity = light->param[RSE::LIGHT_PARAM_SHADOW_OPACITY];
-					light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] * 2.0;  // 2x previously came from directional_shadow_quality_radius_get()
+					light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] * 2.0;  // x2 previously came from directional_shadow_quality_radius_get()
 					light_data.softshadow_angle = (angular_diameter > 0.0) ? MIN(Math::tan(angular_diameter * 0.5), Math::deg_to_rad(45.0)) : 0.0;
 
 					if (angular_diameter > 0.0 && light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] > 0.0)  // Don't bother enabling PCSS if filter scale is 0.
@@ -1073,8 +1093,8 @@ void LightStorage::update_light_buffers(
 		light_data.volumetric_fog_energy = light->param[RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 		light_data.bake_mode = light->bake_mode;
 
-		const float radius = MAX(0.001, light->param[RSE::LIGHT_PARAM_RANGE]);
-		light_data.inv_radius = 1.0 / radius;
+		const float range = MAX(0.002, light->param[RSE::LIGHT_PARAM_RANGE]);
+		light_data.inv_radius = 1.0 / range;
 		Vector2 area_size = light->area_size;
 		Vector3 pos = inverse_transform.xform(light_transform.origin);
 		light_data.position[0] = pos.x;
@@ -1088,9 +1108,11 @@ void LightStorage::update_light_buffers(
 		light_data.direction[2] = direction.z;
 
 		const float spot_angle = MAX(0.001, light->param[RSE::LIGHT_PARAM_SPOT_ANGLE]);
+		const float near_clip = type == RSE::LIGHT_SPOT ? MAX(0.001, MIN(range - 0.001, light->param[RSE::LIGHT_PARAM_NEAR_CLIP])) : 0.025;
 		if (type == RSE::LIGHT_SPOT)
 		{
-			light_data.cos_spot_angle = 1.0 / Math::deg_to_rad(spot_angle);
+			light_data.spot_angle_rcp = 1.0 / Math::deg_to_rad(spot_angle);
+			light_data.near_clip_rcp = 1.0 / near_clip;
 			light_data.inv_spot_attenuation = 4.0 / light->param[RSE::LIGHT_PARAM_SPOT_ATTENUATION];
 		}
 
@@ -1106,7 +1128,7 @@ void LightStorage::update_light_buffers(
 			light_data.area_height[0] = area_vec_b.x;
 			light_data.area_height[1] = area_vec_b.y;
 			light_data.area_height[2] = area_vec_b.z;
-			light_data.inv_spot_attenuation = 1.0 / (radius + area_size.length() / 2.0); // center range
+			light_data.inv_spot_attenuation = 1.0 / (range + area_size.length() / 2.0); // center range
 
 			if (light->area_normalize_energy) {
 				// normalization to make larger lights output same amount of light as smaller lights with same energy
@@ -1177,7 +1199,7 @@ void LightStorage::update_light_buffers(
 			light_data.projector_rect[2] = rect.size.width;
 			light_data.projector_rect[3] = rect.size.height;
 			Size2i texture_size = (rect.size * texture_storage->area_light_atlas_get_size()).ceil();
-			light_data.cos_spot_angle = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), texture_storage->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
+			light_data.spot_angle_rcp = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), texture_storage->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
 		}
 
 		bool needs_shadow = p_using_shadows && light->shadow &&
@@ -1195,7 +1217,6 @@ void LightStorage::update_light_buffers(
 						: 0.0;
 
 		// Get projector transform as needed for either shadow mapping or projector texture.
-		float cm_z_near = 0.0001;
 		if (projector.is_valid() || light_data.shadow_opacity > 0.001)
 		{
 			Transform3D modelview = (inverse_transform * light_transform).inverse();
@@ -1209,12 +1230,9 @@ void LightStorage::update_light_buffers(
 
 				Projection cm;
 				if (light_data.shadow_opacity > 0.001)
-				{
 					cm = light_instance->shadow_transform[0].camera;
-					cm_z_near = cm.get_z_near();
-				}
 				else
-					cm.set_perspective(spot_angle * 2.0, 1.0, MIN(0.025, radius), radius);  // Must match RendererSceneCull::_light_instance_update_shadow()
+					cm.set_perspective(spot_angle * 2.0, 1.0, near_clip, range);  // Must match RendererSceneCull::_light_instance_update_shadow()
 
 				Projection shadow_mtx = bias * correction * cm * modelview;
 				RendererRD::MaterialStorage::store_camera(shadow_mtx, light_data.shadow_matrix);
@@ -1229,12 +1247,12 @@ void LightStorage::update_light_buffers(
 		if (light_data.shadow_opacity > 0.001)
 		{
 			const float shadow_texel_size = light_instance_get_shadow_texel_size(light_instance->self, p_shadow_atlas);
-			light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] * 2.0;  // 2x previously came from shadows_quality_radius_get()
+			light_data.soft_shadow_scale = light->param[RSE::LIGHT_PARAM_SHADOW_BLUR] * 2.0;  // x2 previously came from shadows_quality_radius_get()
 			light_data.shadow_normal_bias = light->param[RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS] * shadow_texel_size * 10.0;
 			light_data.transmittance_bias = light->param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS];
-			light_data.shadow_bias = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS];
+			light_data.shadow_bias = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS] * ((near_clip + 0.00001) / (0.025 + 0.00001));  // Scale z-bias by z-clip to keep it relatively consistent as precision changes.
 			if (type == RSE::LIGHT_SPOT)
-				light_data.shadow_bias *= light_data.soft_shadow_scale / 100.0;
+				light_data.shadow_bias *= light_data.soft_shadow_scale / 200.0;
 
 			Vector2i omni_offset;
 			const Rect2 rect = light_instance_get_shadow_atlas_rect(light_instance->self, p_shadow_atlas, omni_offset);
@@ -1249,29 +1267,25 @@ void LightStorage::update_light_buffers(
 			}
 
 			// Don't bother enabling PCSS if filter scale is 0.
+			light_data.soft_shadow_size = 0.0;
 			if (light_data.size > 0.0 && light_data.soft_shadow_scale > 0.0)
 			{
 				if (type == RSE::LIGHT_SPOT)
 				{
-					float half_np = cm_z_near * Math::tan(Math::deg_to_rad(spot_angle));
-					light_data.soft_shadow_size = (light_data.size * 0.5 / radius) / (half_np / cm_z_near) * rect.size.width * 0.5;
+					float half_np = near_clip * Math::tan(Math::deg_to_rad(spot_angle));
+					light_data.soft_shadow_size = (light_data.size * 0.5 / range) / (half_np / near_clip) * rect.size.width * 0.5;
 				}
 				else  // RSE::LIGHT_OMNI || RSE::LIGHT_AREA
 				{
 					light_data.soft_shadow_size = light_data.size * 0.5;
 				}
 			}
-			else
-			{
-				light_data.soft_shadow_size = 0.0;
-				//light_data.soft_shadow_scale *= RendererSceneRenderRD::get_singleton()->shadows_quality_radius_get();
-			}
 		}
 
 		light_instance->cull_mask = light->cull_mask;
 
 		// Hook for subclass to do further processing.
-		RendererSceneRenderRD::get_singleton()->setup_added_light(type, light_transform, radius, spot_angle, spot_projector, area_size);
+		RendererSceneRenderRD::get_singleton()->setup_added_light(type, light_transform, range, spot_angle, spot_projector, area_size);
 
 		r_positional_light_count++;
 	}

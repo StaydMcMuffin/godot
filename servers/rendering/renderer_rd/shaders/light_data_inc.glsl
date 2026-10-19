@@ -22,7 +22,7 @@ struct LightData
 	float specular_amount;
 	float shadow_opacity;
 	float projector_blur_scale;
-	float pad;
+	float near_clip_rcp;
 
 	vec4 atlas_rect; // rect in the shadow atlas
 	mat4 shadow_matrix;
