@@ -676,7 +676,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		RENDER_TIMESTAMP("Tonemap");
 		RD::get_singleton()->draw_command_begin_label("Tonemap");
 
-		RendererRD::ToneMapper::TonemapSettings tonemap;
+		RendererRD::ToneMapper::TonemapSettings &tonemap = tone_mapper->tonemap_settings;
 
 		bool using_hdr = texture_storage->render_target_is_using_hdr(render_target);
 
@@ -807,11 +807,12 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			}
 		}
 
-		if (can_use_storage) {
-			tone_mapper->tonemapper(color_texture, dest_fb, tonemap);
-		} else {
-			tone_mapper->tonemapper_mobile(color_texture, dest_fb, tonemap);
-		}
+		// TODO: Implement vkCmdBlitImage to do fast framebuffer conversion (skipping the tonemapping shader completely) when all features are disabled.
+		//       (eg. when using fully-custom post-processing via the Compositor)
+		if (can_use_storage)
+			tone_mapper->tonemapper(color_texture, dest_fb);
+		else
+			tone_mapper->tonemapper_mobile(color_texture, dest_fb);
 
 		RD::get_singleton()->draw_command_end_label();
 	}
@@ -916,7 +917,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_switch_to_next_pass();
 
-	RendererRD::ToneMapper::TonemapSettings tonemap;
+	RendererRD::ToneMapper::TonemapSettings &tonemap = tone_mapper->tonemap_settings;
 
 	bool using_hdr = texture_storage->render_target_is_using_hdr(rb->get_render_target());
 
@@ -988,7 +989,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
 	}
 
-	tone_mapper->tonemapper_subpass(draw_list, p_source_texture, RD::get_singleton()->framebuffer_get_format(p_framebuffer), tonemap);
+	tone_mapper->tonemapper_subpass(draw_list, p_source_texture, RD::get_singleton()->framebuffer_get_format(p_framebuffer));
 
 	RD::get_singleton()->draw_command_end_label();
 }

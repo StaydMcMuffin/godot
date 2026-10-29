@@ -25,16 +25,19 @@ void main() {
 	uv_interp = clamp(vertex_base, vec2(0.0, 0.0), vec2(1.0, 1.0)) * 2.0; // saturate(x) * 2.0
 }
 
+
 #[fragment]
 
 #version 450
 
 #VERSION_DEFINES
 
+#define USE_SPEC_CONSTANTS
+
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
 #define ViewIndex gl_ViewIndex
-#endif //USE_MULTIVIEW
+#endif // USE_MULTIVIEW
 
 layout(location = 0) in vec2 uv_interp;
 
@@ -53,7 +56,13 @@ layout(set = 2, binding = 1) uniform sampler2D glow_map; // TODO needs multiview
 layout(set = 3, binding = 0) uniform sampler2D source_color_correction;
 #else
 layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
-#endif
+#endif // USE_1D_LUT
+
+#ifdef USE_SPEC_CONSTANTS
+layout(constant_id = 0) const uint sc_flags = 0;
+layout(constant_id = 1) const uint sc_tonemapper = 0;
+layout(constant_id = 2) const uint sc_glow_mode = 0;
+#endif // USE_SPEC_CONSTANTS
 
 #define FLAG_USE_BCS (1 << 0)
 #define FLAG_USE_GLOW (1 << 1)
@@ -63,7 +72,8 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #define FLAG_USE_8_BIT_DEBANDING (1 << 5)
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
 
-layout(push_constant, std430) uniform Params {
+layout(push_constant, std430) uniform Params
+{
 	vec3 bcs;
 	uint flags;
 
@@ -237,30 +247,36 @@ vec3 srgb_to_linear(vec3 color) {
 	return mix(pow((color.rgb + a) * (1.0f / (vec3(1.0f) + a)), vec3(2.4f)), color.rgb * (1.0f / 12.92f), lessThan(color.rgb, vec3(0.04045f)));
 }
 
+
+#ifdef USE_SPEC_CONSTANTS
+#define TONEMAPPER  uint(sc_tonemapper)
+#else
+#define TONEMAPPER  uint(params.tonemapper)
+#endif // USE_SPEC_CONSTANTS
+
 #define TONEMAPPER_LINEAR 0
 #define TONEMAPPER_REINHARD 1
 #define TONEMAPPER_FILMIC 2
 #define TONEMAPPER_ACES 3
 #define TONEMAPPER_AGX 4
 
-vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
-	if (params.tonemapper == TONEMAPPER_LINEAR) {
+vec3 apply_tonemapping(vec3 color)  // NOTE: input values are scene-linear.
+{
+	if (TONEMAPPER == TONEMAPPER_LINEAR)
 		return color;
-	}
 
 	// Ensure color values passed to tonemappers are positive.
 	// They can be negative in the case of negative lights, which leads to undesired behavior.
 	color = max(vec3(0.0), color);
 
-	if (params.tonemapper == TONEMAPPER_REINHARD) {
+	if (TONEMAPPER == TONEMAPPER_REINHARD)
 		return tonemap_reinhard(color);
-	} else if (params.tonemapper == TONEMAPPER_FILMIC) {
+	else if (TONEMAPPER == TONEMAPPER_FILMIC)
 		return tonemap_filmic(color);
-	} else if (params.tonemapper == TONEMAPPER_ACES) {
+	else if (TONEMAPPER == TONEMAPPER_ACES)
 		return tonemap_aces(color);
-	} else { // TONEMAPPER_AGX
+	else // TONEMAPPER_AGX
 		return tonemap_agx(color);
-	}
 }
 
 #ifdef USE_GLOW_FILTER_BICUBIC
@@ -405,6 +421,12 @@ vec3 gather_glow(SAMPLER_FORMAT tex, vec2 uv) { // sample all selected glow leve
 	return glow;
 }
 
+#ifdef USE_SPEC_CONSTANTS
+#define GLOW_MODE  uint(sc_glow_mode)
+#else
+#define GLOW_MODE  uint(params.glow_mode)
+#endif // USE_SPEC_CONSTANTS
+
 #define GLOW_MODE_ADD 0
 #define GLOW_MODE_SCREEN 1
 #define GLOW_MODE_SOFTLIGHT 2
@@ -413,9 +435,9 @@ vec3 gather_glow(SAMPLER_FORMAT tex, vec2 uv) { // sample all selected glow leve
 
 // Applies glow using the selected blending mode. Does not handle the mix blend mode.
 vec3 apply_glow(vec3 color, vec3 glow, float white) {
-	if (params.glow_mode == GLOW_MODE_ADD) {
+	if (GLOW_MODE == GLOW_MODE_ADD) {
 		return color + glow;
-	} else if (params.glow_mode == GLOW_MODE_SCREEN) {
+	} else if (GLOW_MODE == GLOW_MODE_SCREEN) {
 		// Glow cannot be above 1.0 after normalizing and should be non-negative
 		// to produce expected results. It is possible that glow can be negative
 		// if negative lights were used in the scene.
@@ -434,7 +456,7 @@ vec3 apply_glow(vec3 color, vec3 glow, float white) {
 		color.rgb = color.rgb + glow.rgb - (color.rgb * glow.rgb / white);
 
 		return color;
-	} else if (params.glow_mode == GLOW_MODE_SOFTLIGHT) {
+	} else if (GLOW_MODE == GLOW_MODE_SOFTLIGHT) {
 		// Glow cannot be above 1.0 should be non-negative to produce
 		// expected results. It is possible that glow can be negative
 		// if negative lights were used in the scene.
@@ -851,7 +873,15 @@ vec3 screen_space_dither(vec2 frag_coord, float bit_alignment_diviser) {
 	return (dither.rgb - 0.5) / bit_alignment_diviser;
 }
 
-void main() {
+
+#ifdef USE_SPEC_CONSTANTS
+#define FLAGS  uint(sc_flags)
+#else
+#define FLAGS  uint(params.flags)
+#endif // USE_SPEC_CONSTANTS
+
+void main()
+{
 #ifdef USE_MULTIVIEW
 	vec4 color = textureLod(source_color, vec3(uv_interp, ViewIndex), 0.0f);
 #else
@@ -863,25 +893,25 @@ void main() {
 
 	float exposure = params.exposure;
 
-	if (bool(params.flags & FLAG_USE_AUTO_EXPOSURE)) {
+	if (bool(FLAGS & FLAG_USE_AUTO_EXPOSURE)) {
 		exposure *= 1.0 / (texelFetch(source_auto_exposure, ivec2(0, 0), 0).r * params.luminance_multiplier / params.auto_exposure_scale);
 	}
 
 	color.rgb *= exposure;
 
 	// Single-pass FXAA and pre-tonemap glow.
-	if (bool(params.flags & FLAG_USE_FXAA)) {
+	if (bool(FLAGS & FLAG_USE_FXAA)) {
 		// FXAA must be performed before glow to preserve the "bleed" effect of glow.
 		color.rgb = do_fxaa(color.rgb, exposure, uv_interp);
 	}
 
-	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode != GLOW_MODE_SOFTLIGHT) {
+	if (bool(FLAGS & FLAG_USE_GLOW) && GLOW_MODE != GLOW_MODE_SOFTLIGHT) {
 		vec3 glow = gather_glow(source_glow, uv_interp) * params.glow_intensity;
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
 
-		if (params.glow_mode == GLOW_MODE_MIX) {
+		if (GLOW_MODE == GLOW_MODE_MIX) {
 			color.rgb = color.rgb * (1.0 - params.glow_intensity) + glow;
 		} else {
 			color.rgb = apply_glow(color.rgb, glow, params.white);
@@ -894,7 +924,7 @@ void main() {
 
 	// Post-tonemap glow.
 
-	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode == GLOW_MODE_SOFTLIGHT) {
+	if (bool(FLAGS & FLAG_USE_GLOW) && GLOW_MODE == GLOW_MODE_SOFTLIGHT) {
 		// Apply soft light after tonemapping to mitigate the issue of discontinuity
 		// at 1.0 and higher. This makes the issue only appear with HDR output that
 		// can exceed a 1.0 output value.
@@ -908,7 +938,7 @@ void main() {
 
 	// Additional effects.
 
-	if (bool(params.flags & FLAG_USE_BCS)) {
+	if (bool(FLAGS & FLAG_USE_BCS)) {
 		// Apply brightness:
 		// Apply to relative luminance. This ensures that the hue and saturation of
 		// colors is not affected by the adjustment, but requires the multiplication
@@ -930,23 +960,23 @@ void main() {
 		// maintains compatibility with existing projects.
 		color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
 
-		if (bool(params.flags & FLAG_USE_COLOR_CORRECTION)) {
+		if (bool(FLAGS & FLAG_USE_COLOR_CORRECTION)) {
 			color.rgb = clamp(color.rgb, vec3(0.0), vec3(1.0));
 			color.rgb = apply_color_correction(color.rgb);
 			// When using color correction and  FLAG_CONVERT_TO_SRGB is false, there
 			// is no need to convert back to linear because the color correction
 			// texture sampling does this for us.
-		} else if (!bool(params.flags & FLAG_CONVERT_TO_SRGB)) {
+		} else if (!bool(FLAGS & FLAG_CONVERT_TO_SRGB)) {
 			color.rgb = srgb_to_linear(color.rgb);
 		}
-	} else if (bool(params.flags & FLAG_CONVERT_TO_SRGB)) {
+	} else if (bool(FLAGS & FLAG_CONVERT_TO_SRGB)) {
 		color.rgb = linear_to_srgb(color.rgb);
 	}
 
 	// Debanding should be done at the end of tonemapping, but before writing to the LDR buffer.
 	// Otherwise, we're adding noise to an already-quantized image.
 
-	if (bool(params.flags & FLAG_USE_8_BIT_DEBANDING)) {
+	if (bool(FLAGS & FLAG_USE_8_BIT_DEBANDING)) {
 		// Divide by 255 to align to 8-bit quantization.
 		color.rgb += screen_space_dither(gl_FragCoord.xy, 255.0);
 	}
