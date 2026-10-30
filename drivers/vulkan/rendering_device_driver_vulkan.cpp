@@ -5097,6 +5097,31 @@ static void _texture_copy_region_to_vk(const RDD::TextureCopyRegion &p_copy_regi
 	r_vk_copy_region->extent.depth = p_copy_region.size.z;
 }
 
+/** Initialize a `VkImageBlit` struct with values from its equivalent `RDD::TextureBlitRegion`. */
+static
+void _texture_blit_region_to_vk (
+  const	RDD::TextureBlitRegion &p_blit_region,
+		VkImageBlit *r_vk_blit_region
+	)
+{
+	*r_vk_blit_region = {};
+	_texture_subresource_layers_to_vk(p_blit_region.src_subresources, &r_vk_blit_region->srcSubresource);
+	r_vk_blit_region->srcOffsets[0].x = p_blit_region.src_offsets[0].x;
+	r_vk_blit_region->srcOffsets[0].y = p_blit_region.src_offsets[0].y;
+	r_vk_blit_region->srcOffsets[0].z = p_blit_region.src_offsets[0].z;
+	r_vk_blit_region->srcOffsets[1].x = p_blit_region.src_offsets[1].x;
+	r_vk_blit_region->srcOffsets[1].y = p_blit_region.src_offsets[1].y;
+	r_vk_blit_region->srcOffsets[1].z = p_blit_region.src_offsets[1].z;
+	_texture_subresource_layers_to_vk(p_blit_region.dst_subresources, &r_vk_blit_region->dstSubresource);
+	r_vk_blit_region->dstOffsets[0].x = p_blit_region.dst_offsets[0].x;
+	r_vk_blit_region->dstOffsets[0].y = p_blit_region.dst_offsets[0].y;
+	r_vk_blit_region->dstOffsets[0].z = p_blit_region.dst_offsets[0].z;
+	r_vk_blit_region->dstOffsets[1].x = p_blit_region.dst_offsets[1].x;
+	r_vk_blit_region->dstOffsets[1].y = p_blit_region.dst_offsets[1].y;
+	r_vk_blit_region->dstOffsets[1].z = p_blit_region.dst_offsets[1].z;
+}
+
+
 void RenderingDeviceDriverVulkan::command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) {
 	const CommandBufferInfo *command_buffer = (const CommandBufferInfo *)p_cmd_buffer.id;
 	const BufferInfo *buf_info = (const BufferInfo *)p_buffer.id;
@@ -5247,6 +5272,42 @@ void RenderingDeviceDriverVulkan::command_copy_texture_to_buffer(CommandBufferID
 #endif
 	vkCmdCopyImageToBuffer(command_buffer->vk_command_buffer, tex_info->vk_view_create_info.image, RD_TO_VK_LAYOUT[p_src_texture_layout], buf_info->vk_buffer, p_regions.size(), vk_copy_regions);
 }
+
+
+void RenderingDeviceDriverVulkan::command_blit_texture (
+		CommandBufferID p_cmd_buffer,
+		TextureID p_src_texture,
+		TextureLayout p_src_texture_layout,
+		TextureID p_dst_texture,
+		TextureLayout p_dst_texture_layout,
+		VectorView<TextureBlitRegion> p_regions,
+		SamplerFilter p_filter
+	)
+{
+	const CommandBufferInfo *command_buffer = (const CommandBufferInfo *)p_cmd_buffer.id;
+	const TextureInfo *src_tex_info = (const TextureInfo *)p_src_texture.id;
+	const TextureInfo *dst_tex_info = (const TextureInfo *)p_dst_texture.id;
+	
+	VkImageBlit *vk_blit_regions = ALLOCA_ARRAY(VkImageBlit, p_regions.size());
+	for (uint32_t i = 0; i < p_regions.size(); i++)
+	{
+		_texture_blit_region_to_vk(p_regions[i], &vk_blit_regions[i]);
+	}
+
+#ifdef DEBUG_ENABLED
+	if (src_tex_info->transient)
+		ERR_PRINT("TEXTURE_USAGE_TRANSIENT_BIT p_src_texture must not be used in command_blit_image.");
+	if (dst_tex_info->transient)
+		ERR_PRINT("TEXTURE_USAGE_TRANSIENT_BIT p_dst_texture must not be used in command_blit_image.");
+#endif // DEBUG_ENABLED
+
+	vkCmdBlitImage(command_buffer->vk_command_buffer,
+			src_tex_info->vk_view_create_info.image, RD_TO_VK_LAYOUT[p_src_texture_layout],
+			dst_tex_info->vk_view_create_info.image, RD_TO_VK_LAYOUT[p_dst_texture_layout],
+			p_regions.size(), vk_blit_regions, p_filter == SAMPLER_FILTER_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST
+	);
+}
+
 
 /******************/
 /**** PIPELINE ****/

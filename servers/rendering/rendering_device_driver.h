@@ -552,13 +552,15 @@ public:
 	/**** TRANSFER ****/
 	/******************/
 
-	struct BufferCopyRegion {
+	struct BufferCopyRegion
+	{
 		uint64_t src_offset = 0;
 		uint64_t dst_offset = 0;
 		uint64_t size = 0;
 	};
 
-	struct TextureCopyRegion {
+	struct TextureCopyRegion
+	{
 		TextureSubresourceLayers src_subresources;
 		Vector3i src_offset;
 		TextureSubresourceLayers dst_subresources;
@@ -566,12 +568,21 @@ public:
 		Vector3i size;
 	};
 
-	struct BufferTextureCopyRegion {
+	struct BufferTextureCopyRegion
+	{
 		uint64_t buffer_offset = 0;
 		uint64_t row_pitch = 0;
 		TextureSubresource texture_subresource;
 		Vector3i texture_offset;
 		Vector3i texture_region_size;
+	};
+
+	struct TextureBlitRegion
+	{
+		TextureSubresourceLayers src_subresources;
+		Vector3i src_offsets[2];
+		TextureSubresourceLayers dst_subresources;
+		Vector3i dst_offsets[2];
 	};
 
 	virtual void command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) = 0;
@@ -582,8 +593,38 @@ public:
 	virtual void command_clear_color_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, const Color &p_color, const TextureSubresourceRange &p_subresources) = 0;
 	virtual void command_clear_depth_stencil_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, float p_depth, uint8_t p_stencil, const TextureSubresourceRange &p_subresources) = 0;
 
-	virtual void command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) = 0;
-	virtual void command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) = 0;
+	/** `vkCmdCopyBufferToImage` command. */
+	virtual
+	void command_copy_buffer_to_texture(
+			CommandBufferID p_cmd_buffer,
+			BufferID p_src_buffer,
+			TextureID p_dst_texture,
+			TextureLayout p_dst_texture_layout,
+			VectorView<BufferTextureCopyRegion> p_regions
+	) = 0;
+	
+	/** `vkCmdCopyImageToBuffer` command. */
+	virtual
+	void command_copy_texture_to_buffer (
+			CommandBufferID p_cmd_buffer,
+			TextureID p_src_texture,
+			TextureLayout p_src_texture_layout,
+			BufferID p_dst_buffer,
+			VectorView<BufferTextureCopyRegion> p_regions
+	) = 0;
+
+	/** `vkCmdBlitImage` command. */
+	virtual
+	void command_blit_texture (
+			CommandBufferID p_cmd_buffer,
+			TextureID p_src_texture,
+			TextureLayout p_src_texture_layout,
+			TextureID p_dst_texture,
+			TextureLayout p_dst_texture_layout,
+			VectorView<TextureBlitRegion> p_regions,
+			SamplerFilter p_filter
+	) = 0;
+
 
 	/******************/
 	/**** PIPELINE ****/

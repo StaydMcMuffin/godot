@@ -792,20 +792,22 @@ RID RenderSceneBuffersRD::get_velocity_depth_buffer() {
 	return velocity_depth;
 }
 
-uint32_t RenderSceneBuffersRD::get_color_usage_bits(bool p_resolve, bool p_msaa, bool p_storage) {
+
+uint32_t RenderSceneBuffersRD::get_color_usage_bits(bool p_resolve, bool p_msaa, bool p_storage)
+{
 	DEV_ASSERT((!p_resolve && !p_msaa) || (p_resolve != p_msaa));
 
-	uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_INPUT_ATTACHMENT_BIT;
-	if (p_msaa) {
+	uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_INPUT_ATTACHMENT_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+	/*if (p_msaa)
 		usage_bits |= RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
-	} else if (p_resolve) {
+	else*/ if (p_resolve)
 		usage_bits |= RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | (p_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : 0);
-	} else {
+	else
 		usage_bits |= (p_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : 0);
-	}
 
 	return usage_bits;
 }
+
 
 RD::DataFormat RenderSceneBuffersRD::get_depth_format(bool p_resolve, bool p_msaa, bool p_storage) {
 	if (p_resolve && (p_storage || !RenderingDevice::get_singleton()->has_feature(RD::SUPPORTS_FRAMEBUFFER_DEPTH_RESOLVE))) {

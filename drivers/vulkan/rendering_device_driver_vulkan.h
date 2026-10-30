@@ -577,6 +577,19 @@ public:
 	virtual void command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) override final;
 	virtual void command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) override final;
 
+	/** `vkCmdBlitImage` command. */
+	virtual
+	void command_blit_texture (
+			CommandBufferID p_cmd_buffer,
+			TextureID p_src_texture,
+			TextureLayout p_src_texture_layout,
+			TextureID p_dst_texture,
+			TextureLayout p_dst_texture_layout,
+			VectorView<TextureBlitRegion> p_regions,
+			SamplerFilter p_filter
+	) override final;
+
+
 	/******************/
 	/**** PIPELINE ****/
 	/******************/

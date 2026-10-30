@@ -1382,8 +1382,6 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		}
 
 		// If we need extra effects we do this in its own pass
-		RENDER_TIMESTAMP("Tonemap");
-
 		_render_buffers_post_process_and_tonemap(p_render_data, use_msaa);
 
 		RD::get_singleton()->draw_command_end_label(); // Post process pass

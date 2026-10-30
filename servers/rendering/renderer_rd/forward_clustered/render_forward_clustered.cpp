@@ -2546,8 +2546,6 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	if (rb_data.is_valid()) {
 		_debug_draw_cluster(rb);
 
-		RENDER_TIMESTAMP("Tonemap");
-
 		_render_buffers_post_process_and_tonemap(p_render_data);
 	}
 

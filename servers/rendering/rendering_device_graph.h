@@ -100,8 +100,10 @@ public:
 		Type type = TYPE_NONE;
 	};
 
-	struct RecordedCommand {
-		enum Type {
+	struct RecordedCommand
+	{
+		enum Type
+		{
 			TYPE_NONE,
 			TYPE_BOTTOM_LEVEL_ACCELERATION_STRUCTURE_BUILD,
 			TYPE_TOP_LEVEL_ACCELERATION_STRUCTURE_BUILD,
@@ -118,6 +120,7 @@ public:
 			TYPE_TEXTURE_GET_DATA,
 			TYPE_TEXTURE_RESOLVE,
 			TYPE_TEXTURE_UPDATE,
+			TYPE_TEXTURE_BLIT,
 			TYPE_CAPTURE_TIMESTAMP,
 			TYPE_DRIVER_CALLBACK,
 			TYPE_MAX
@@ -133,7 +136,7 @@ public:
 #if USE_BUFFER_BARRIERS
 		int32_t buffer_barrier_index = -1;
 		int32_t buffer_barrier_count = 0;
-#endif
+#endif // USE_BUFFER_BARRIERS
 		int32_t acceleration_structure_barrier_index = -1;
 		int32_t acceleration_structure_barrier_count = 0;
 		int32_t label_index = -1;
@@ -152,7 +155,9 @@ public:
 		RDD::BufferTextureCopyRegion region;
 	};
 
-	enum ResourceUsage {
+	// TODO: Do we need a BLIT_FROM/TO here or is using COPY_FROM/TO fine?
+	enum ResourceUsage
+	{
 		RESOURCE_USAGE_NONE,
 		RESOURCE_USAGE_COPY_FROM,
 		RESOURCE_USAGE_COPY_TO,
@@ -537,6 +542,27 @@ private:
 
 		_FORCE_INLINE_ const RecordedBufferToTextureCopy *buffer_to_texture_copies() const {
 			return reinterpret_cast<const RecordedBufferToTextureCopy *>(&this[1]);
+		}
+	};
+
+	/** Recorded instance of `command_blit_image`. */
+	struct RecordedTextureBlitCommand : RecordedCommand
+	{
+		RDD::TextureID from_texture;
+		RDD::TextureID to_texture;
+		uint32_t texture_blit_regions_count = 0;
+		RDD::SamplerFilter filter;
+
+		_FORCE_INLINE_
+		RDD::TextureBlitRegion *texture_blit_regions()
+		{
+			return reinterpret_cast<RDD::TextureBlitRegion *>(&this[1]);
+		}
+
+		_FORCE_INLINE_
+		const RDD::TextureBlitRegion *texture_blit_regions() const
+		{
+			return reinterpret_cast<const RDD::TextureBlitRegion *>(&this[1]);
 		}
 	};
 
@@ -951,6 +977,17 @@ public:
 	void add_texture_get_data(RDD::TextureID p_src, ResourceTracker *p_src_tracker, RDD::BufferID p_dst, VectorView<RDD::BufferTextureCopyRegion> p_buffer_texture_copy_regions, ResourceTracker *p_dst_tracker = nullptr);
 	void add_texture_resolve(RDD::TextureID p_src, ResourceTracker *p_src_tracker, RDD::TextureID p_dst, ResourceTracker *p_dst_tracker, uint32_t p_src_layer, uint32_t p_src_mipmap, uint32_t p_dst_layer, uint32_t p_dst_mipmap);
 	void add_texture_update(RDD::TextureID p_dst, ResourceTracker *p_dst_tracker, VectorView<RecordedBufferToTextureCopy> p_buffer_copies, VectorView<ResourceTracker *> p_buffer_trackers = VectorView<ResourceTracker *>());
+	
+	/** Record a `command_blit_texture` to run. */
+	void add_texture_blit (
+			RDD::TextureID p_src,
+			ResourceTracker *p_src_tracker,
+			RDD::TextureID p_dst,
+			ResourceTracker *p_dst_tracker,
+			VectorView<RDD::TextureBlitRegion> p_texture_blit_regions,
+			RDD::SamplerFilter p_filter
+	);
+	
 	void add_capture_timestamp(RDD::QueryPoolID p_query_pool, uint32_t p_index);
 	void add_synchronization();
 	void begin_label(const Span<char> &p_label_name, const Color &p_color);

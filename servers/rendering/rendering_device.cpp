@@ -3075,6 +3075,109 @@ Error RenderingDevice::texture_resolve_multisample(RID p_from_texture, RID p_to_
 	return OK;
 }
 
+
+Error RenderingDevice::texture_blit (
+		RID p_from_texture,
+		RID p_to_texture,
+  const	Vector3 &p_from_start,
+  const	Vector3 &p_from_end,
+  const	Vector3 &p_to_start,
+  const	Vector3 &p_to_end,
+		uint32_t p_src_mipmap,
+		uint32_t p_dst_mipmap,
+		uint32_t p_src_layer,
+		uint32_t p_dst_layer,
+		SamplerFilter p_filter
+	)
+{
+	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
+
+	Texture *src_tex = texture_owner.get_or_null(p_from_texture);
+	ERR_FAIL_NULL_V(src_tex, ERR_INVALID_PARAMETER);
+
+	ERR_FAIL_COND_V_MSG(src_tex->bound, ERR_INVALID_PARAMETER,
+			"Source texture can't be blitted from while a draw list that uses it as part of a framebuffer is being created. Ensure the draw list is finalized (and that the color/depth texture using it is not set to `RenderingDevice.FINAL_ACTION_CONTINUE`) to blit from this texture.");
+	ERR_FAIL_COND_V_MSG(!(src_tex->usage_flags & TEXTURE_USAGE_CAN_COPY_FROM_BIT), ERR_INVALID_PARAMETER,
+			"Source texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.");
+
+	// Validate source region (has non-zero area and non-negative extents).
+	ERR_FAIL_COND_V(p_from_start.x >= p_from_end.x, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_from_start.y >= p_from_end.y, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_from_start.z >= p_from_end.z, ERR_INVALID_PARAMETER);
+
+	uint32_t src_width, src_height, src_depth;
+	get_image_format_required_size(src_tex->format, src_tex->width, src_tex->height, src_tex->depth, p_src_mipmap + 1, &src_width, &src_height, &src_depth);
+
+	// Check that source is within its texture's bounds (dimensions and mips).
+	ERR_FAIL_COND_V(p_from_start.x < 0 || p_from_end.x > src_width, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_from_start.y < 0 || p_from_end.y > src_height, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_from_start.z < 0 || p_from_end.z > src_depth, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_src_mipmap >= src_tex->mipmaps, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_src_layer >= src_tex->layers, ERR_INVALID_PARAMETER);
+
+	Texture *dst_tex = texture_owner.get_or_null(p_to_texture);
+	ERR_FAIL_NULL_V(dst_tex, ERR_INVALID_PARAMETER);
+
+	ERR_FAIL_COND_V_MSG(dst_tex->bound, ERR_INVALID_PARAMETER,
+			"Destination texture can't be blitted to while a draw list that uses it as part of a framebuffer is being created. Ensure the draw list is finalized (and that the color/depth texture using it is not set to `RenderingDevice.FINAL_ACTION_CONTINUE`) to blit to this texture.");
+	ERR_FAIL_COND_V_MSG(!(dst_tex->usage_flags & TEXTURE_USAGE_CAN_COPY_TO_BIT), ERR_INVALID_PARAMETER,
+			"Destination texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT` to be set to be retrieved.");
+
+	// Validate destination region (has non-zero area and non-negative extents).
+	ERR_FAIL_COND_V(p_to_start.x >= p_to_end.x, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_to_start.y >= p_to_end.y, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_to_start.z >= p_to_end.z, ERR_INVALID_PARAMETER);
+
+	uint32_t dst_width, dst_height, dst_depth;
+	get_image_format_required_size(dst_tex->format, dst_tex->width, dst_tex->height, dst_tex->depth, p_dst_mipmap + 1, &dst_width, &dst_height, &dst_depth);
+
+	// Check that destination is within its texture's bounds (dimensions and mips).
+	ERR_FAIL_COND_V(p_to_start.x < 0 || p_to_end.x > dst_width, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_to_start.y < 0 || p_to_end.y > dst_height, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_to_start.z < 0 || p_to_end.z > dst_depth, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_dst_mipmap >= dst_tex->mipmaps, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_dst_layer >= dst_tex->layers, ERR_INVALID_PARAMETER);
+
+	ERR_FAIL_COND_V_MSG(src_tex->read_aspect_flags != dst_tex->read_aspect_flags, ERR_INVALID_PARAMETER,
+			"Source and destination texture must be of the same type (color or depth).");
+
+	// Clear the textures if the driver requires it during its first use.
+	_texture_check_pending_clear(p_from_texture, src_tex);
+	_texture_check_pending_clear(p_to_texture, dst_tex);
+
+	_check_transfer_worker_texture(src_tex);
+	_check_transfer_worker_texture(dst_tex);
+
+	RDD::TextureBlitRegion blit_region;
+	blit_region.src_subresources.aspect = src_tex->read_aspect_flags;
+	blit_region.src_subresources.mipmap = p_src_mipmap;
+	blit_region.src_subresources.base_layer = p_src_layer;
+	blit_region.src_subresources.layer_count = 1;
+	blit_region.src_offsets[0] = p_from_start;
+	blit_region.src_offsets[1] = p_from_end;
+
+	blit_region.dst_subresources.aspect = dst_tex->read_aspect_flags;
+	blit_region.dst_subresources.mipmap = p_dst_mipmap;
+	blit_region.dst_subresources.base_layer = p_dst_layer;
+	blit_region.dst_subresources.layer_count = 1;
+	blit_region.dst_offsets[0] = p_to_start;
+	blit_region.dst_offsets[1] = p_to_end;
+
+	// Indicate the texture will get modified for the shared texture fallback.
+	_texture_update_shared_fallback(p_to_texture, dst_tex, true);
+
+	// The textures must be mutable to be used in the blit operation.
+	bool src_made_mutable = _texture_make_mutable(src_tex, p_from_texture);
+	bool dst_made_mutable = _texture_make_mutable(dst_tex, p_to_texture);
+	if (src_made_mutable || dst_made_mutable)
+		draw_graph.add_synchronization();
+
+	draw_graph.add_texture_blit(src_tex->driver_id, src_tex->draw_tracker, dst_tex->driver_id, dst_tex->draw_tracker, blit_region, p_filter);
+
+	return OK;
+}
+
+
 void RenderingDevice::texture_set_discardable(RID p_texture, bool p_discardable) {
 	ERR_RENDER_THREAD_GUARD();
 

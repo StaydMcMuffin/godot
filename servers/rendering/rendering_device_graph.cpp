@@ -1210,32 +1210,49 @@ void RenderingDeviceGraph::_run_render_commands(int32_t p_level, const RecordedC
 				const RecordedTextureClearDepthStencilCommand *texture_clear_depth_stencil_command = reinterpret_cast<const RecordedTextureClearDepthStencilCommand *>(command);
 				driver->command_clear_depth_stencil_texture(r_command_buffer, texture_clear_depth_stencil_command->texture, RDD::TEXTURE_LAYOUT_COPY_DST_OPTIMAL, texture_clear_depth_stencil_command->depth, texture_clear_depth_stencil_command->stencil, texture_clear_depth_stencil_command->range);
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_COPY: {
+			case RecordedCommand::TYPE_TEXTURE_COPY:
+			{
 				const RecordedTextureCopyCommand *texture_copy_command = reinterpret_cast<const RecordedTextureCopyCommand *>(command);
 				const VectorView<RDD::TextureCopyRegion> command_texture_copy_regions_view(texture_copy_command->texture_copy_regions(), texture_copy_command->texture_copy_regions_count);
 				driver->command_copy_texture(r_command_buffer, texture_copy_command->from_texture, RDD::TEXTURE_LAYOUT_COPY_SRC_OPTIMAL, texture_copy_command->to_texture, RDD::TEXTURE_LAYOUT_COPY_DST_OPTIMAL, command_texture_copy_regions_view);
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_GET_DATA: {
+			case RecordedCommand::TYPE_TEXTURE_GET_DATA:
+			{
 				const RecordedTextureGetDataCommand *texture_get_data_command = reinterpret_cast<const RecordedTextureGetDataCommand *>(command);
 				const VectorView<RDD::BufferTextureCopyRegion> command_buffer_texture_copy_regions_view(texture_get_data_command->buffer_texture_copy_regions(), texture_get_data_command->buffer_texture_copy_regions_count);
 				driver->command_copy_texture_to_buffer(r_command_buffer, texture_get_data_command->from_texture, RDD::TEXTURE_LAYOUT_COPY_SRC_OPTIMAL, texture_get_data_command->to_buffer, command_buffer_texture_copy_regions_view);
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_RESOLVE: {
+			case RecordedCommand::TYPE_TEXTURE_RESOLVE:
+			{
 				const RecordedTextureResolveCommand *texture_resolve_command = reinterpret_cast<const RecordedTextureResolveCommand *>(command);
 				driver->command_resolve_texture(r_command_buffer, texture_resolve_command->from_texture, RDD::TEXTURE_LAYOUT_RESOLVE_SRC_OPTIMAL, texture_resolve_command->src_layer, texture_resolve_command->src_mipmap, texture_resolve_command->to_texture, RDD::TEXTURE_LAYOUT_RESOLVE_DST_OPTIMAL, texture_resolve_command->dst_layer, texture_resolve_command->dst_mipmap);
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_UPDATE: {
+			case RecordedCommand::TYPE_TEXTURE_UPDATE:
+			{
 				const RecordedTextureUpdateCommand *texture_update_command = reinterpret_cast<const RecordedTextureUpdateCommand *>(command);
 				const RecordedBufferToTextureCopy *command_buffer_to_texture_copies = texture_update_command->buffer_to_texture_copies();
 				for (uint32_t j = 0; j < texture_update_command->buffer_to_texture_copies_count; j++) {
 					driver->command_copy_buffer_to_texture(r_command_buffer, command_buffer_to_texture_copies[j].from_buffer, texture_update_command->to_texture, RDD::TEXTURE_LAYOUT_COPY_DST_OPTIMAL, command_buffer_to_texture_copies[j].region);
 				}
 			} break;
-			case RecordedCommand::TYPE_CAPTURE_TIMESTAMP: {
+			case RecordedCommand::TYPE_TEXTURE_BLIT:
+			{
+				const RecordedTextureBlitCommand *texture_blit_command = reinterpret_cast<const RecordedTextureBlitCommand *>(command);
+				const VectorView<RDD::TextureBlitRegion> command_texture_blit_regions_view(
+						texture_blit_command->texture_blit_regions(), texture_blit_command->texture_blit_regions_count);
+				driver->command_blit_texture(r_command_buffer, 
+						texture_blit_command->from_texture, RDD::TEXTURE_LAYOUT_COPY_SRC_OPTIMAL,
+						texture_blit_command->to_texture, RDD::TEXTURE_LAYOUT_COPY_DST_OPTIMAL,
+						command_texture_blit_regions_view, texture_blit_command->filter
+				);
+			} break;
+			case RecordedCommand::TYPE_CAPTURE_TIMESTAMP:
+			{
 				const RecordedCaptureTimestampCommand *texture_capture_timestamp_command = reinterpret_cast<const RecordedCaptureTimestampCommand *>(command);
 				driver->command_timestamp_write(r_command_buffer, texture_capture_timestamp_command->pool, texture_capture_timestamp_command->index);
 			} break;
-			default: {
+			default:
+			{
 				DEV_ASSERT(false && "Unknown recorded command type.");
 				return;
 			}
@@ -1271,21 +1288,23 @@ void RenderingDeviceGraph::_run_label_command_change(RDD::CommandBufferID p_comm
 		// Add the level to the name.
 		label_name += " (L" + itos(p_new_level) + ")";
 
-		if (p_sorted_commands != nullptr && p_sorted_commands_count > 0) {
+		if (p_sorted_commands != nullptr && p_sorted_commands_count > 0)
+		{
 			// Analyze the commands in the level that have the same label to detect what type of operations are performed.
 			bool copy_commands = false;
 			bool compute_commands = false;
 			bool draw_commands = false;
 			bool custom_commands = false;
-			for (uint32_t i = 0; i < p_sorted_commands_count; i++) {
+			for (uint32_t i = 0; i < p_sorted_commands_count; i++)
+			{
 				const uint32_t command_index = p_sorted_commands[i].index;
 				const uint32_t command_data_offset = command_data_offsets[command_index];
 				const RecordedCommand *command = reinterpret_cast<RecordedCommand *>(&command_data[command_data_offset]);
-				if (command->label_index != p_new_label_index) {
+				if (command->label_index != p_new_label_index)
 					break;
-				}
 
-				switch (command->type) {
+				switch (command->type)
+				{
 					case RecordedCommand::TYPE_BUFFER_CLEAR:
 					case RecordedCommand::TYPE_BUFFER_COPY:
 					case RecordedCommand::TYPE_BUFFER_GET_DATA:
@@ -1295,27 +1314,31 @@ void RenderingDeviceGraph::_run_label_command_change(RDD::CommandBufferID p_comm
 					case RecordedCommand::TYPE_TEXTURE_COPY:
 					case RecordedCommand::TYPE_TEXTURE_GET_DATA:
 					case RecordedCommand::TYPE_TEXTURE_RESOLVE:
-					case RecordedCommand::TYPE_TEXTURE_UPDATE: {
+					case RecordedCommand::TYPE_TEXTURE_UPDATE:
+					case RecordedCommand::TYPE_TEXTURE_BLIT:
+					{
 						copy_commands = true;
 					} break;
-					case RecordedCommand::TYPE_COMPUTE_LIST: {
+					case RecordedCommand::TYPE_COMPUTE_LIST:
+					{
 						compute_commands = true;
 					} break;
-					case RecordedCommand::TYPE_DRAW_LIST: {
+					case RecordedCommand::TYPE_DRAW_LIST:
+					{
 						draw_commands = true;
 					} break;
-					case RecordedCommand::TYPE_DRIVER_CALLBACK: {
+					case RecordedCommand::TYPE_DRIVER_CALLBACK:
+					{
 						custom_commands = true;
 					} break;
-					default: {
+					default:
+					{
 						// Ignore command.
 					} break;
 				}
 
-				if (copy_commands && compute_commands && draw_commands && custom_commands) {
-					// There's no more command types to find.
-					break;
-				}
+				if (copy_commands && compute_commands && draw_commands && custom_commands)
+					break;  // There's no more command types to find.
 			}
 
 			if (copy_commands || compute_commands || draw_commands || custom_commands) {
@@ -1499,30 +1522,43 @@ void RenderingDeviceGraph::_print_render_commands(const RecordedCommandSort *p_s
 				const RecordedDrawListCommand *draw_list_command = reinterpret_cast<const RecordedDrawListCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "DRAW LIST SIZE", draw_list_command->instruction_data_size);
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_CLEAR_COLOR: {
+			case RecordedCommand::TYPE_TEXTURE_CLEAR_COLOR:
+			{
 				const RecordedTextureClearColorCommand *texture_clear_color_command = reinterpret_cast<const RecordedTextureClearColorCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "TEXTURE CLEAR COLOR", itos(texture_clear_color_command->texture.id), "COLOR", texture_clear_color_command->color);
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_CLEAR_DEPTH_STENCIL: {
+			case RecordedCommand::TYPE_TEXTURE_CLEAR_DEPTH_STENCIL:
+			{
 				const RecordedTextureClearDepthStencilCommand *texture_clear_depth_stencil_command = reinterpret_cast<const RecordedTextureClearDepthStencilCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "TEXTURE CLEAR DEPTH STENCIL", itos(texture_clear_depth_stencil_command->texture.id), "DEPTH", rtos(texture_clear_depth_stencil_command->depth), "STENCIL", itos(texture_clear_depth_stencil_command->stencil));
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_COPY: {
+			case RecordedCommand::TYPE_TEXTURE_COPY:
+			{
 				const RecordedTextureCopyCommand *texture_copy_command = reinterpret_cast<const RecordedTextureCopyCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "TEXTURE COPY FROM", itos(texture_copy_command->from_texture.id), "TO", itos(texture_copy_command->to_texture.id));
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_GET_DATA: {
+			case RecordedCommand::TYPE_TEXTURE_GET_DATA:
+			{
 				print_line(command_index, "LEVEL", command_level, "TEXTURE GET DATA");
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_RESOLVE: {
+			case RecordedCommand::TYPE_TEXTURE_RESOLVE:
+			{
 				const RecordedTextureResolveCommand *texture_resolve_command = reinterpret_cast<const RecordedTextureResolveCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "TEXTURE RESOLVE FROM", itos(texture_resolve_command->from_texture.id), "TO", itos(texture_resolve_command->to_texture.id));
 			} break;
-			case RecordedCommand::TYPE_TEXTURE_UPDATE: {
+			case RecordedCommand::TYPE_TEXTURE_UPDATE:
+			{
 				const RecordedTextureUpdateCommand *texture_update_command = reinterpret_cast<const RecordedTextureUpdateCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "TEXTURE UPDATE TO", itos(texture_update_command->to_texture.id));
 			} break;
-			case RecordedCommand::TYPE_CAPTURE_TIMESTAMP: {
+			case RecordedCommand::TYPE_TEXTURE_BLIT:
+			{
+				const RecordedTextureBlitCommand *texture_blit_command = reinterpret_cast<const RecordedTextureBlitCommand *>(command);
+				print_line(command_index, "LEVEL", command_level,
+						"TEXTURE BLIT FROM", itos(texture_blit_command->from_texture.id), "TO", itos(texture_blit_command->to_texture.id));
+			} break;
+			case RecordedCommand::TYPE_CAPTURE_TIMESTAMP:
+			{
 				const RecordedCaptureTimestampCommand *texture_capture_timestamp_command = reinterpret_cast<const RecordedCaptureTimestampCommand *>(command);
 				print_line(command_index, "LEVEL", command_level, "CAPTURE TIMESTAMP POOL", itos(texture_capture_timestamp_command->pool.id), "INDEX", texture_capture_timestamp_command->index);
 			} break;
@@ -2572,6 +2608,40 @@ void RenderingDeviceGraph::add_texture_update(RDD::TextureID p_dst, ResourceTrac
 	}
 }
 
+
+void RenderingDeviceGraph::add_texture_blit (
+		RDD::TextureID p_src,
+		ResourceTracker *p_src_tracker,
+		RDD::TextureID p_dst,
+		ResourceTracker *p_dst_tracker,
+		VectorView<RDD::TextureBlitRegion> p_texture_blit_regions,
+		RDD::SamplerFilter p_filter
+	)
+{
+	DEV_ASSERT(p_src_tracker != nullptr);
+	DEV_ASSERT(p_dst_tracker != nullptr);
+
+	int32_t command_index;
+	uint64_t command_size = sizeof(RecordedTextureBlitCommand) + p_texture_blit_regions.size() * sizeof(RDD::TextureBlitRegion);
+	RecordedTextureBlitCommand *command = static_cast<RecordedTextureBlitCommand *>(_allocate_command(command_size, command_index));
+	command->type = RecordedCommand::TYPE_TEXTURE_BLIT;
+	command->self_stages = RDD::PIPELINE_STAGE_COPY_BIT;
+	command->from_texture = p_src;
+	command->to_texture = p_dst;
+	command->texture_blit_regions_count = p_texture_blit_regions.size();
+
+	RDD::TextureBlitRegion *texture_blit_regions = command->texture_blit_regions();
+	for (uint32_t i = 0; i < command->texture_blit_regions_count; i++)
+	{
+		texture_blit_regions[i] = p_texture_blit_regions[i];
+	}
+
+	ResourceTracker *trackers[2] = { p_dst_tracker, p_src_tracker };
+	ResourceUsage usages[2] = { RESOURCE_USAGE_COPY_TO, RESOURCE_USAGE_COPY_FROM };
+	_add_command_to_graph(trackers, usages, 2, command_index, command);
+}
+
+
 void RenderingDeviceGraph::add_capture_timestamp(RDD::QueryPoolID p_query_pool, uint32_t p_index) {
 	int32_t command_index;
 	RecordedCaptureTimestampCommand *command = static_cast<RecordedCaptureTimestampCommand *>(_allocate_command(sizeof(RecordedCaptureTimestampCommand), command_index));
@@ -2668,25 +2738,27 @@ void RenderingDeviceGraph::end(bool p_reorder_commands, bool p_full_barriers, RD
 		}
 
 		// Batch buffer, texture, draw lists and compute operations together.
-		const uint32_t PriorityTable[] = {
-			0, // TYPE_NONE
-			6, // TYPE_BOTTOM_LEVEL_ACCELERATION_STRUCTURE_BUILD
-			6, // TYPE_TOP_LEVEL_ACCELERATION_STRUCTURE_BUILD
-			1, // TYPE_BUFFER_CLEAR
-			1, // TYPE_BUFFER_COPY
-			1, // TYPE_BUFFER_GET_DATA
-			1, // TYPE_BUFFER_UPDATE
-			4, // TYPE_COMPUTE_LIST
-			7, // TYPE_RAYTRACING_LIST
-			3, // TYPE_DRAW_LIST
-			2, // TYPE_TEXTURE_CLEAR_COLOR
-			2, // TYPE_TEXTURE_CLEAR_DEPTH_STENCIL
-			2, // TYPE_TEXTURE_COPY
-			2, // TYPE_TEXTURE_GET_DATA
-			2, // TYPE_TEXTURE_RESOLVE
-			2, // TYPE_TEXTURE_UPDATE
-			2, // TYPE_CAPTURE_TIMESTAMP
-			5, // TYPE_DRIVER_CALLBACK
+		const uint32_t PriorityTable[] =
+		{
+			0,  // TYPE_NONE
+			6,  // TYPE_BOTTOM_LEVEL_ACCELERATION_STRUCTURE_BUILD
+			6,  // TYPE_TOP_LEVEL_ACCELERATION_STRUCTURE_BUILD
+			1,  // TYPE_BUFFER_CLEAR
+			1,  // TYPE_BUFFER_COPY
+			1,  // TYPE_BUFFER_GET_DATA
+			1,  // TYPE_BUFFER_UPDATE
+			4,  // TYPE_COMPUTE_LIST
+			7,  // TYPE_RAYTRACING_LIST
+			3,  // TYPE_DRAW_LIST
+			2,  // TYPE_TEXTURE_CLEAR_COLOR
+			2,  // TYPE_TEXTURE_CLEAR_DEPTH_STENCIL
+			2,  // TYPE_TEXTURE_COPY
+			2,  // TYPE_TEXTURE_GET_DATA
+			2,  // TYPE_TEXTURE_RESOLVE
+			2,  // TYPE_TEXTURE_UPDATE
+			2,  // TYPE_TEXTURE_BLIT
+			2,  // TYPE_CAPTURE_TIMESTAMP
+			5,  // TYPE_DRIVER_CALLBACK
 		};
 		static_assert(std_size(PriorityTable) == RecordedCommand::TYPE_MAX, "PriorityTable must have one entry per RecordedCommand::Type");
 
