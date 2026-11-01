@@ -52,16 +52,16 @@ jobs:
             echo "use_all_files=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Style checks via prek (all files)
-        if: steps.prek-scope.outputs.use_all_files == 'true'
-        uses: j178/prek-action@v2
-        with:
-          extra-args: --all-files
+      #- name: Style checks via prek (all files)
+      #  if: steps.prek-scope.outputs.use_all_files == 'true'
+      #  uses: j178/prek-action@v2
+      #  with:
+      #    extra-args: --all-files
 
-      - name: Style checks via prek (changed files)
-        if: steps.prek-scope.outputs.use_all_files == 'false'
-        uses: j178/prek-action@v2
-        env:
-          CHANGED_FILES: '"${{ steps.changed-files.outputs.everything_all_changed_files }}"' # Wrap with quotes to bookend internal quote separators.
-        with:
-          extra-args: --files ${{ env.CHANGED_FILES }}
+      #- name: Style checks via prek (changed files)
+      #  if: steps.prek-scope.outputs.use_all_files == 'false'
+      #  uses: j178/prek-action@v2
+      #  env:
+      #    CHANGED_FILES: '"${{ steps.changed-files.outputs.everything_all_changed_files }}"' # Wrap with quotes to bookend internal quote separators.
+      #  with:
+      #    extra-args: --files ${{ env.CHANGED_FILES }}

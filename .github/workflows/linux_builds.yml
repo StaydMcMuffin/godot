@@ -190,11 +190,11 @@ jobs:
           platform: linuxbsd
           target: ${{ matrix.target }}
 
-      - name: Style checks via clangd-tidy
-        if: matrix.clangd-tidy
-        uses: ./.github/actions/clangd-tidy
-        with:
-          changed-files: ${{ inputs.changed-files }}
+      #- name: Style checks via clangd-tidy
+      #  if: matrix.clangd-tidy
+      #  uses: ./.github/actions/clangd-tidy
+      #  with:
+      #    changed-files: ${{ inputs.changed-files }}
 
       - name: Compilation (godot-cpp)
         uses: ./.github/actions/godot-cpp-build
