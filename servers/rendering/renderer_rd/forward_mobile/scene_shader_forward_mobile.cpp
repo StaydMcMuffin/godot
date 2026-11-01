@@ -826,10 +826,12 @@ void SceneShaderForwardMobile::init(const String p_defines) {
 		actions.render_mode_defines["shadow_to_opacity"] = "#define USE_SHADOW_TO_OPACITY\n";
 		actions.render_mode_defines["unshaded"] = "#define MODE_UNSHADED\n";
 
-		bool force_vertex_shading = GLOBAL_GET("rendering/shading/overrides/force_vertex_shading");
-		if (!force_vertex_shading) {
-			// If forcing vertex shading, this will be defined already.
+		// If forcing vertex shading, USE_VERTEX_LIGHTING is already defined.
+		const bool force_vertex_shading = GLOBAL_GET("rendering/shading/overrides/force_vertex_shading");
+		if (!force_vertex_shading)
+		{
 			actions.render_mode_defines["vertex_lighting"] = "#define USE_VERTEX_LIGHTING\n";
+			actions.render_mode_defines["vertex_lighting_sh"] = "#define USE_VERTEX_LIGHTING\n";  // Per-vertex SH is Forward+ only.
 		}
 
 		actions.render_mode_defines["debug_shadow_splits"] = "#define DEBUG_DRAW_PSSM_SPLITS\n";

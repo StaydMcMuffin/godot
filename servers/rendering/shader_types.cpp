@@ -251,7 +251,7 @@ ShaderTypes::ShaderTypes() {
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("shadows_disabled") });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("ambient_light_disabled") });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("shadow_to_opacity") });
-		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("vertex_lighting") });
+		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("vertex"), "lighting", "lighting_sh" });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("particle_trails") });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("alpha_to_coverage") });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("alpha_to_coverage_and_one") });

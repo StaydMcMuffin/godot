@@ -5112,10 +5112,10 @@ RenderForwardClustered::RenderForwardClustered() {
 		defines += "\n#define SDFGI_OCT_SIZE " + itos(gi.sdfgi_get_lightprobe_octahedron_size()) + "\n";
 		defines += "\n#define MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS " + itos(MAX_DIRECTIONAL_LIGHTS) + "\n";
 
-		bool force_vertex_shading = GLOBAL_GET("rendering/shading/overrides/force_vertex_shading");
-		if (force_vertex_shading) {
-			defines += "\n#define USE_VERTEX_LIGHTING\n";
-		}
+		// force_vertex_shading specifically enforces standard per-vertex shading, so per-vertex SH is also overridden.
+		const bool force_vertex_shading = GLOBAL_GET("rendering/shading/overrides/force_vertex_shading");
+		if (force_vertex_shading)
+			defines += "\n#define USE_VERTEX_LIGHTING  0\n";
 
 		bool specular_occlusion = GLOBAL_GET("rendering/reflections/specular_occlusion/enabled");
 		if (!specular_occlusion) {

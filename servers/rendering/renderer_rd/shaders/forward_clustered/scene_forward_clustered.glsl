@@ -118,7 +118,8 @@ layout(location = 8) out vec4 prev_screen_position;
 
 #ifdef MATERIAL_UNIFORMS_USED
 /* clang-format off */
-layout(set = MATERIAL_UNIFORM_SET, binding = 0, std140) uniform MaterialUniforms {
+layout(set = MATERIAL_UNIFORM_SET, binding = 0, std140) uniform MaterialUniforms
+{
 #MATERIAL_UNIFORMS
 } material;
 /* clang-format on */
@@ -128,7 +129,7 @@ float global_time;
 
 #ifdef MODE_DUAL_PARABOLOID
 
-layout(location = 9) out float dp_clip;
+layout(location = 9, component = 0) out float dp_clip;
 
 #endif
 
@@ -156,12 +157,23 @@ ivec2 multiview_uv(ivec2 uv) {
 #endif //USE_MULTIVIEW
 
 #if !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
+#if (USE_VERTEX_LIGHTING == 0)
+// Per-vertex standard //
 layout(location = 12) out vec4 diffuse_light_interp;
 layout(location = 13) out vec4 specular_light_interp;
+#else  // USE_VERTEX_LIGHTING == 1
+// Per-vertex SH //
+layout(location = 9, component = 1) out float sh_spec_scale_interp;
+layout(location = 12) out vec4 sh_r_interp;
+layout(location = 13) out vec4 sh_g_interp;
+layout(location = 14) out vec4 sh_b_interp;
+#include "../sh_inc.glsl"
+#endif // USE_VERTEX_LIGHTING == 0/1
 
 #include "../scene_forward_vertex_lights_inc.glsl"
 
-void cluster_get_item_range(uint p_offset, out uint item_min, out uint item_max, out uint item_from, out uint item_to) {
+void cluster_get_item_range(uint p_offset, out uint item_min, out uint item_max, out uint item_from, out uint item_to)
+{
 	uint item_min_max = cluster_buffer.data[p_offset];
 	item_min = item_min_max & 0xFFFFu;
 	item_max = item_min_max >> 16;
@@ -170,15 +182,16 @@ void cluster_get_item_range(uint p_offset, out uint item_min, out uint item_max,
 	item_to = (item_max == 0) ? 0 : ((item_max - 1) >> 5) + 1; //side effect of how it is stored, as item_max 0 means no elements
 }
 
-uint cluster_get_range_clip_mask(uint i, uint z_min, uint z_max) {
+uint cluster_get_range_clip_mask(uint i, uint z_min, uint z_max)
+{
 	int local_min = clamp(int(z_min) - int(i) * 32, 0, 31);
 	int mask_width = min(int(z_max) - int(z_min), 32 - local_min);
 	return bitfieldInsert(uint(0), uint(0xFFFFFFFF), local_min, mask_width);
 }
-#endif // !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
+#endif // !MODE_RENDER_DEPTH && !MODE_UNSHADED && USE_VERTEX_LIGHTING
 
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
-layout(location = 14) out vec2 point_coord_interp;
+layout(location = 15) out vec2 point_coord_interp;
 #endif
 
 invariant gl_Position;
@@ -534,16 +547,25 @@ void vertex_shader(vec3 vertex_input,
 #endif
 
 #if !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
+#if (USE_VERTEX_LIGHTING == 0)
+	// Per-vertex standard //
 	diffuse_light_interp = vec4(0.0);
 	specular_light_interp = vec4(0.0);
+#else  // USE_VERTEX_LIGHTING == 1
+	// Per-vertex SH //
+	sh_spec_scale_interp = 0.0;
+	sh_r_interp = vec4(0.0);
+	sh_g_interp = vec4(0.0);
+	sh_b_interp = vec4(0.0);
+#endif // USE_VERTEX_LIGHTING == 0/1
 
 #ifdef USE_MULTIVIEW
-	vec3 view = -normalize(vertex_interp - eye_offset);
+	vec3 view = normalize(eye_offset - vertex_interp);
 	vec2 clip_pos = clamp((combined_projected.xy / combined_projected.w) * 0.5 + 0.5, 0.0, 1.0);
 #else
-	vec3 view = -normalize(vertex_interp);
+	vec3 view = normalize(-vertex_interp);
 	vec2 clip_pos = clamp((gl_Position.xy / gl_Position.w) * 0.5 + 0.5, 0.0, 1.0);
-#endif
+#endif // USE_MULTIVIEW
 
 	uvec2 screen_size = uvec2(1.0 / scene_data.screen_pixel_size);
 	uvec2 screen_pixel = clamp(uvec2(clip_pos * vec2(screen_size)), uvec2(0), screen_size - uvec2(1));
@@ -580,8 +602,14 @@ void vertex_shader(vec3 vertex_input,
 				if (omni_lights.data[light_index].bake_mode == LIGHT_BAKE_STATIC && bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP))
 					continue;  // Statically baked light and object uses lightmap, skip.
 
-				light_process_omni_vertex(light_index, vertex, view, normal_interp, roughness,
-						diffuse_light_interp.rgb, specular_light_interp.rgb);
+				light_process_omni_vertex(
+						light_index, vertex, view, normal_interp, roughness,
+#if (USE_VERTEX_LIGHTING == 0)
+						diffuse_light_interp.rgb, specular_light_interp.rgb
+#else  // USE_VERTEX_LIGHTING == 1
+						sh_r_interp, sh_g_interp, sh_b_interp, sh_spec_scale_interp
+#endif // USE_VERTEX_LIGHTING == 0/1
+				);
 			}
 		}
 	}
@@ -617,7 +645,12 @@ void vertex_shader(vec3 vertex_input,
 					continue;  // Statically baked light and object uses lightmap, skip.
 
 				light_process_spot_vertex(light_index, vertex, view, normal_interp, roughness,
-						diffuse_light_interp.rgb, specular_light_interp.rgb);
+#if (USE_VERTEX_LIGHTING == 0)
+						diffuse_light_interp.rgb, specular_light_interp.rgb
+#else  // USE_VERTEX_LIGHTING == 1
+						sh_r_interp, sh_g_interp, sh_b_interp, sh_spec_scale_interp
+#endif // USE_VERTEX_LIGHTING == 0/1
+				);
 			}
 		}
 	}
@@ -681,21 +714,41 @@ void vertex_shader(vec3 vertex_input,
 #undef BIAS_FUNC
 
 #endif // !SHADOWS_DISABLED
-	
+
+#if (USE_VERTEX_LIGHTING == 0)
 		light_compute_vertex(
 				normal_interp, light_data.direction, view, light_data.size, light_data.color * energy, roughness, light_data.specular,
-				diffuse_light_interp.rgb, specular_light_interp.rgb);
+				diffuse_light_interp.rgb, specular_light_interp.rgb
+		);
+#else // USE_VERTEX_LIGHTING == 1
+		light_project_sh(
+				normal_interp, light_data.direction, light_data.color * energy, light_data.specular,
+				sh_r_interp, sh_g_interp, sh_b_interp, sh_spec_scale_interp
+		);
+#endif // USE_VERTEX_LIGHTING == 0/1
 	}
 
-	// Interpolate vertex lighting brightness non-linearly for perceptually smoother gradients.
-	diffuse_light_interp.a = abs(dot(diffuse_light_interp.rgb, vec3(1.0 / 3.0))) + 0.000001;
-	diffuse_light_interp *= inversesqrt(diffuse_light_interp.a);
+#if (USE_VERTEX_LIGHTING == 0)
+	// Interpolate per-vertex lighting brightness non-linearly for perceptually smoother gradients.
+	diffuse_light_interp *= inversesqrt(abs(dot(diffuse_light_interp.rgb, vec3(1.0/3.0))) + 0.000001);
 #ifndef SPECULAR_DISABLED
-	specular_light_interp.a = abs(dot(specular_light_interp.rgb, vec3(1.0 / 3.0))) + 0.000001;
-	specular_light_interp *= inversesqrt(specular_light_interp.a);
+	specular_light_interp *= inversesqrt(abs(dot(specular_light_interp.rgb, vec3(1.0/3.0))) + 0.000001);
 #endif // !SPECULAR_DISABLED
+#else  // USE_VERTEX_LIGHTING == 1
+#ifndef SPECULAR_DISABLED
+	// Ratio between L0 brightness with and without specular_amount. This lets individual lights control their contribution to SH specular,
+	// without requiring an entire separate set of coefficients to be accumulated and passed to the fragment shader.
+	sh_spec_scale_interp = sqrt(abs(sh_spec_scale_interp) / (abs(dot(vec3(sh_r_interp.x, sh_g_interp.x, sh_b_interp.x), vec3(1.0/3.0))) + 0.000001));
+#endif // !SPECULAR_DISABLED
+	// Interpolate per-vertex SH brightness non-linearly for perceptually smoother gradients.
+	float sh_l0_rsqrt = inversesqrt(abs(dot(vec3(sh_r_interp.x, sh_g_interp.x, sh_b_interp.x), vec3(1.0/3.0))) + 0.000001);
+	sh_r_interp *= sh_l0_rsqrt;
+	sh_g_interp *= sh_l0_rsqrt;
+	sh_b_interp *= sh_l0_rsqrt;
+#endif // USE_VERTEX_LIGHTING == 0/1
 
-#endif //!defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
+#endif // !MODE_RENDER_DEPTH && !MODE_UNSHADED && USE_VERTEX_LIGHTING
+
 
 #ifdef MODE_RENDER_DEPTH
 	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_PANCAKE_SHADOWS)) {
@@ -933,7 +986,7 @@ layout(location = 8) in vec4 prev_screen_position;
 
 #ifdef MODE_DUAL_PARABOLOID
 
-layout(location = 9) in float dp_clip;
+layout(location = 9, component = 0) in float dp_clip;
 
 #endif
 
@@ -1019,13 +1072,24 @@ ivec2 multiview_uv(ivec2 uv) {
 	return uv;
 }
 #endif // !USE_MULTIVIEW
+
 #if !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
+#if (USE_VERTEX_LIGHTING == 0)
+// Per-vertex standard //
 layout(location = 12) in vec4 diffuse_light_interp;
 layout(location = 13) in vec4 specular_light_interp;
-#endif
+#else  // USE_VERTEX_LIGHTING == 1
+// Per-vertex SH //
+layout(location = 9, component = 1) in float sh_spec_scale_interp;
+layout(location = 12) in vec4 sh_r_interp;
+layout(location = 13) in vec4 sh_g_interp;
+layout(location = 14) in vec4 sh_b_interp;
+#include "../sh_inc.glsl"
+#endif // USE_VERTEX_LIGHTING
+#endif // !MODE_RENDER_DEPTH && !MODE_UNSHADED && USE_VERTEX_LIGHTING
 
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
-layout(location = 14) in vec2 point_coord_interp;
+layout(location = 15) in vec2 point_coord_interp;
 #endif
 
 //defines to keep compatibility with vertex
@@ -1047,7 +1111,8 @@ layout(location = 14) in vec2 point_coord_interp;
 
 #ifdef MATERIAL_UNIFORMS_USED
 /* clang-format off */
-layout(set = MATERIAL_UNIFORM_SET, binding = 0, std140) uniform MaterialUniforms {
+layout(set = MATERIAL_UNIFORM_SET, binding = 0, std140) uniform MaterialUniforms
+{
 #MATERIAL_UNIFORMS
 } material;
 /* clang-format on */
@@ -2304,10 +2369,65 @@ void fragment_shader(in SceneData scene_data) {
 // Beginning of Direct Light //
 
 #ifdef USE_VERTEX_LIGHTING
-	diffuse_light += diffuse_light_interp.rgb * diffuse_light_interp.a;
+#if (USE_VERTEX_LIGHTING == 0)
+
+	// Per-vertex lighting brightness is interpolated non-linearly, so multiply the interpolated values by their brightness to linearize.
+	diffuse_light += diffuse_light_interp.rgb * dot(diffuse_light_interp.rgb, vec3(1.0/3.0));
 #ifndef SPECULAR_DISABLED
-	direct_specular_light += specular_light_interp.rgb * specular_light_interp.a * (energy_compensation * ((f90 - f0) * envBRDF.x + f0 * envBRDF.y));
+	direct_specular_light += specular_light_interp.rgb * dot(specular_light_interp.rgb, vec3(1.0/3.0)) * (energy_compensation * ((f90 - f0) * envBRDF.x + f0 * envBRDF.y));
 #endif // !SPECULAR_DISABLED
+
+#else  // USE_VERTEX_LIGHTING == 1
+
+	// Per-vertex SH brightness is interpolated non-linearly, so multiply evaluated SH by its brightness to linearize.
+	// This has the added benefit of smoothing-out the SH terminator.
+#if defined(DIFFUSE_LAMBERT_WRAP)
+	vec3 diffuse_sh = sh_l1_evaluate(sh_r_interp, sh_g_interp, sh_b_interp, normal * (1.0 - roughness * 0.75)) * sqrt(1.0 + roughness * 0.75);  // Coarse fit but pretty close.
+#elif defined(DIFFUSE_TOON)
+	vec3 diffuse_sh = sh_l1_evaluate(sh_r_interp, sh_g_interp, sh_b_interp, normal * (1.0 - roughness * 0.5)) * (1.0 + roughness * 0.5) * sqrt(1.0 + roughness * 0.5);  // VERY coarse fit but at least matches at low roughness.
+#else  // DIFFUSE_LAMBERT
+	vec3 diffuse_sh = sh_l1_evaluate(sh_r_interp, sh_g_interp, sh_b_interp, normal);
+#endif // DIFFUSE_MODE
+	diffuse_light += diffuse_sh * dot(diffuse_sh, vec3(1.0/3.0)) * ((1.0 / M_PI) * inversesqrt(M_PI));
+
+#ifndef SPECULAR_DISABLED
+#if 0
+	// Direct specular from dominant SH direction.
+	// Doesn't handle overlapping lights well.
+	vec3 sh_vec = (sh_r_interp.wyz + sh_g_interp.wyz + sh_b_interp.wyz) / (sh_r_interp.x + sh_g_interp.x + sh_b_interp.x + 0.000001);
+	float sh_len = dot(sh_vec, sh_vec) + 0.000001;
+	float sh_len_rcp = inversesqrt(sh_len);
+	sh_vec *= sh_len_rcp;
+	sh_len *= sh_len_rcp * inversesqrt(3.0);  // 0-1 range
+
+	float sh_fade = clamp(sh_len * 4.0 - 3.0, 0.0, 1.0);
+	sh_fade *= sh_fade;
+	sh_fade = 1.0 - sh_fade * sh_fade;
+	sh_fade = 1.0 - sh_fade * sh_fade;
+
+	//float roughness_sqr = mix(1.0, roughness * roughness, sh_len);
+	float roughness_sqr = roughness * roughness;
+
+	vec3 sh_H = normalize(sh_vec + view);
+	float sh_NdotL = clamp(dot(normal, sh_vec), 0.0, 1.0);
+	float sh_NdotH = clamp(dot(normal, sh_H), 0.0001, 1.0);
+	float sh_LdotH5 = SchlickFresnel(clamp(dot(sh_vec, sh_H), 0.0, 1.0));
+	float sh_D = D_GGX(sh_NdotH, roughness_sqr);
+	float sh_V = V_GGX(sh_NdotL, NdotV, roughness_sqr);
+	vec3 specular_sh = sh_l1_evaluate_rad(sh_r_interp, sh_g_interp, sh_b_interp, sh_vec);
+	specular_sh *= dot(specular_sh, vec3(1.0/3.0)) * (sh_spec_scale_interp * sh_spec_scale_interp);
+	direct_specular_light += specular_sh * (sh_D * sh_V * sh_NdotL * ((1.0 / M_PI) * sqrt(M_PI)) * sh_fade) * (energy_compensation * (f0 + (f90 - f0) * sh_LdotH5));
+#else
+	// SH radiance as specular.
+	float roughness_sqr = roughness * roughness;
+	vec3 ref_vec = normalize(mix(reflect(-view, normal), normal, roughness_sqr * roughness_sqr));
+	vec3 specular_sh = sh_l1_evaluate_spec(sh_r_interp, sh_g_interp, sh_b_interp, ref_vec, roughness_sqr);
+	specular_sh *= dot(specular_sh, vec3(1.0/3.0)) * (sh_spec_scale_interp * sh_spec_scale_interp);
+	direct_specular_light += specular_sh * ((1.0 / M_PI) * inversesqrt(M_PI)) * (energy_compensation * ((f90 - f0) * envBRDF.x + f0 * envBRDF.y));
+#endif
+#endif // !SPECULAR_DISABLED
+
+#endif // USE_VERTEX_LIGHTING == 0/1
 #endif // USE_VERTEX_LIGHTING
 
 	{ // Directional light.

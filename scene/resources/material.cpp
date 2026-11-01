@@ -845,12 +845,14 @@ void BaseMaterial3D::_update_shader() {
 				break; // Internal value, skip.
 		}
 	}
-	if (flags[FLAG_PARTICLE_TRAILS_MODE]) {
+	if (flags[FLAG_PARTICLE_TRAILS_MODE])
 		code += ", particle_trails";
-	}
-	if (shading_mode == SHADING_MODE_PER_VERTEX) {
+	
+	if (shading_mode == SHADING_MODE_PER_VERTEX)
 		code += ", vertex_lighting";
-	}
+	else if (shading_mode == SHADING_MODE_PER_VERTEX_SH)
+		code += ", vertex_lighting_sh";
+	
 	if (flags[FLAG_DONT_RECEIVE_SHADOWS]) {
 		code += ", shadows_disabled";
 	}
@@ -2544,59 +2546,51 @@ BaseMaterial3D::TextureFilter BaseMaterial3D::get_texture_filter() const {
 	return texture_filter;
 }
 
-void BaseMaterial3D::_validate_property(PropertyInfo &p_property) const {
-	if (p_property.name == "emission_intensity" && !GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
+
+void BaseMaterial3D::_validate_property(
+		PropertyInfo &p_property
+	) const
+{
+	if (p_property.name == "emission_intensity" && !GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units"))
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
-	if (p_property.name.begins_with("particles_anim_") && billboard_mode != BILLBOARD_PARTICLES) {
+	if (p_property.name.begins_with("particles_anim_") && billboard_mode != BILLBOARD_PARTICLES)
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
-	if (Engine::get_singleton()->is_editor_hint()) {
-		if (p_property.name == "billboard_keep_scale" && billboard_mode == BILLBOARD_DISABLED) {
+	if (Engine::get_singleton()->is_editor_hint())
+	{
+		if (p_property.name == "billboard_keep_scale" && billboard_mode == BILLBOARD_DISABLED)
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "grow_amount" && !grow_enabled) {
+		if (p_property.name == "grow_amount" && !grow_enabled)
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "point_size" && !flags[FLAG_USE_POINT_SIZE]) {
+		if (p_property.name == "point_size" && !flags[FLAG_USE_POINT_SIZE])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "proximity_fade_distance" && !proximity_fade_enabled) {
+		if (p_property.name == "proximity_fade_distance" && !proximity_fade_enabled)
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "msdf_pixel_range" && !flags[FLAG_ALBEDO_TEXTURE_MSDF]) {
+		if (p_property.name == "msdf_pixel_range" && !flags[FLAG_ALBEDO_TEXTURE_MSDF])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "msdf_outline_size" && !flags[FLAG_ALBEDO_TEXTURE_MSDF]) {
+		if (p_property.name == "msdf_outline_size" && !flags[FLAG_ALBEDO_TEXTURE_MSDF])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if ((p_property.name == "distance_fade_max_distance" || p_property.name == "distance_fade_min_distance") && distance_fade == DISTANCE_FADE_DISABLED) {
+		if ((p_property.name == "distance_fade_max_distance" || p_property.name == "distance_fade_min_distance") && distance_fade == DISTANCE_FADE_DISABLED)
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if ((p_property.name == "uv1_triplanar_sharpness" || p_property.name == "uv1_world_triplanar") && !flags[FLAG_UV1_USE_TRIPLANAR]) {
+		if ((p_property.name == "uv1_triplanar_sharpness" || p_property.name == "uv1_world_triplanar") && !flags[FLAG_UV1_USE_TRIPLANAR])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if ((p_property.name == "uv2_triplanar_sharpness" || p_property.name == "uv2_world_triplanar") && !flags[FLAG_UV2_USE_TRIPLANAR]) {
+		if ((p_property.name == "uv2_triplanar_sharpness" || p_property.name == "uv2_world_triplanar") && !flags[FLAG_UV2_USE_TRIPLANAR])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "z_clip_scale" && !flags[FLAG_USE_Z_CLIP_SCALE]) {
+		if (p_property.name == "z_clip_scale" && !flags[FLAG_USE_Z_CLIP_SCALE])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 
-		if (p_property.name == "fov_override" && !flags[FLAG_USE_FOV_OVERRIDE]) {
+		if (p_property.name == "fov_override" && !flags[FLAG_USE_FOV_OVERRIDE])
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
 	}
 
 	// you can only enable anti-aliasing (in materials) on alpha scissor and alpha hash
@@ -2605,125 +2599,103 @@ void BaseMaterial3D::_validate_property(PropertyInfo &p_property) const {
 	const bool alpha_aa_enabled = (alpha_antialiasing_mode != ALPHA_ANTIALIASING_OFF) && can_select_aa;
 
 	// alpha scissor slider isn't needed when alpha antialiasing is enabled
-	if (p_property.name == "alpha_scissor_threshold" && transparency != TRANSPARENCY_ALPHA_SCISSOR) {
+	if (p_property.name == "alpha_scissor_threshold" && transparency != TRANSPARENCY_ALPHA_SCISSOR)
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
 	// alpha hash scale slider is only needed if transparency is alpha hash
-	if (p_property.name == "alpha_hash_scale" && transparency != TRANSPARENCY_ALPHA_HASH) {
+	if (p_property.name == "alpha_hash_scale" && transparency != TRANSPARENCY_ALPHA_HASH)
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
-	if (p_property.name == "alpha_antialiasing_mode" && !can_select_aa) {
+	if (p_property.name == "alpha_antialiasing_mode" && !can_select_aa)
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
 	// we can't choose an antialiasing mode if alpha isn't possible
-	if (p_property.name == "alpha_antialiasing_edge" && !alpha_aa_enabled) {
+	if (p_property.name == "alpha_antialiasing_edge" && !alpha_aa_enabled)
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
-	if (p_property.name == "blend_mode" && alpha_aa_enabled) {
+	if (p_property.name == "blend_mode" && alpha_aa_enabled)
 		p_property.usage = PROPERTY_USAGE_NONE;
-	}
 
-	if ((p_property.name == "heightmap_min_layers" || p_property.name == "heightmap_max_layers") && !deep_parallax) {
+	if ((p_property.name == "heightmap_min_layers" || p_property.name == "heightmap_max_layers") && !deep_parallax)
 		p_property.usage = PROPERTY_USAGE_NONE;
+
+	if (Engine::get_singleton()->is_editor_hint())
+	{
+		if (p_property.name == "depth_test" && flags[FLAG_DISABLE_DEPTH_TEST])
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+
+		if (p_property.name == "stencil_reference" && stencil_mode == STENCIL_MODE_DISABLED)
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+
+		if ((p_property.name == "stencil_flags" || p_property.name == "stencil_compare") && stencil_mode != STENCIL_MODE_CUSTOM)
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+
+		if (p_property.name == "stencil_color" && stencil_mode != STENCIL_MODE_OUTLINE && stencil_mode != STENCIL_MODE_XRAY)
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+
+		if (p_property.name == "stencil_outline_thickness" && stencil_mode != STENCIL_MODE_OUTLINE)
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 	}
 
-	if (Engine::get_singleton()->is_editor_hint()) {
-		if (p_property.name == "depth_test" && flags[FLAG_DISABLE_DEPTH_TEST]) {
-			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
-
-		if (p_property.name == "stencil_reference" && stencil_mode == STENCIL_MODE_DISABLED) {
-			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
-
-		if ((p_property.name == "stencil_flags" || p_property.name == "stencil_compare") && stencil_mode != STENCIL_MODE_CUSTOM) {
-			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
-
-		if (p_property.name == "stencil_color" && stencil_mode != STENCIL_MODE_OUTLINE && stencil_mode != STENCIL_MODE_XRAY) {
-			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
-
-		if (p_property.name == "stencil_outline_thickness" && stencil_mode != STENCIL_MODE_OUTLINE) {
-			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-		}
-	}
-
-	if (flags[FLAG_SUBSURFACE_MODE_SKIN] && (p_property.name == "subsurf_scatter_transmittance_color" || p_property.name == "subsurf_scatter_transmittance_texture")) {
+	if (flags[FLAG_SUBSURFACE_MODE_SKIN] && (p_property.name == "subsurf_scatter_transmittance_color" || p_property.name == "subsurf_scatter_transmittance_texture"))
 		p_property.usage = PROPERTY_USAGE_NONE;
+
+	if (orm)
+	{
+		// Per-vertex shading isn't supported in ORM mode, since roughness is expected to come from a texture.
+		if (p_property.name == "shading_mode")
+			p_property.hint_string = "Unshaded,Per-Pixel,Per-Vertex SH";
+		
+		if (p_property.name.begins_with("roughness") || p_property.name.begins_with("metallic") || p_property.name.begins_with("ao_texture"))
+			p_property.usage = PROPERTY_USAGE_NONE;
+	}
+	else
+	{
+		if (p_property.name == "orm_texture")
+			p_property.usage = PROPERTY_USAGE_NONE;
 	}
 
-	if (orm) {
-		if (p_property.name == "shading_mode") {
-			// Vertex not supported in ORM mode, since no individual roughness.
-			p_property.hint_string = "Unshaded,Per-Pixel";
-		}
-		if (p_property.name.begins_with("roughness") || p_property.name.begins_with("metallic") || p_property.name.begins_with("ao_texture")) {
-			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-
-	} else {
-		if (p_property.name == "orm_texture") {
-			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-	}
-
-	if (shading_mode != SHADING_MODE_PER_PIXEL) {
-		if (shading_mode != SHADING_MODE_PER_VERTEX) {
-			//these may still work per vertex
-			if (p_property.name.begins_with("ao")) {
+	// Disable features not relevant/supported for per-vertex or unshaded modes.
+	if (shading_mode != SHADING_MODE_PER_PIXEL)
+	{
+		// These features work with per-vertex shading, only disable for unshaded.
+		if (!(shading_mode == SHADING_MODE_PER_VERTEX || shading_mode == SHADING_MODE_PER_VERTEX_SH))
+		{
+			if (p_property.name.begins_with("diffuse_mode"))
 				p_property.usage = PROPERTY_USAGE_NONE;
-			}
-			if (p_property.name.begins_with("emission")) {
+			else if (p_property.name.begins_with("specular_mode"))
 				p_property.usage = PROPERTY_USAGE_NONE;
-			}
-
-			if (p_property.name.begins_with("metallic")) {
+			else if (p_property.name.begins_with("ao"))
 				p_property.usage = PROPERTY_USAGE_NONE;
-			}
-			if (p_property.name.begins_with("rim")) {
+			else if (p_property.name.begins_with("emission"))
 				p_property.usage = PROPERTY_USAGE_NONE;
-			}
-
-			if (p_property.name.begins_with("roughness")) {
+			else if (p_property.name.begins_with("metallic"))
 				p_property.usage = PROPERTY_USAGE_NONE;
-			}
-
-			if (p_property.name.begins_with("subsurf_scatter")) {
+			else if (p_property.name.begins_with("rim"))
 				p_property.usage = PROPERTY_USAGE_NONE;
-			}
+			else if (p_property.name.begins_with("roughness"))
+				p_property.usage = PROPERTY_USAGE_NONE;
+			else if (p_property.name.begins_with("subsurf_scatter"))
+				p_property.usage = PROPERTY_USAGE_NONE;
+			else if (p_property.name.begins_with("normal"))
+				p_property.usage = PROPERTY_USAGE_NONE;  // Per-vertex SH supports normal mapping of course, but standard per-vertex can also use it for other things.
 		}
 
-		//these definitely only need per pixel
-		if (p_property.name.begins_with("anisotropy")) {
+		// These features require per-pixel shading.
+		// TODO: Can probably make most or all of these work with per-vertex SH.
+		if (p_property.name.begins_with("anisotropy"))
 			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-
-		if (p_property.name.begins_with("clearcoat")) {
+		else if (p_property.name.begins_with("clearcoat"))
 			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-
-		if (p_property.name.begins_with("normal")) {
+		else if (p_property.name.begins_with("bent_normal"))
 			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-
-		if (p_property.name.begins_with("bent_normal")) {
+		else if (p_property.name.begins_with("backlight"))
 			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-
-		if (p_property.name.begins_with("backlight")) {
+		else if (p_property.name.begins_with("transmittance"))
 			p_property.usage = PROPERTY_USAGE_NONE;
-		}
-
-		if (p_property.name.begins_with("transmittance")) {
-			p_property.usage = PROPERTY_USAGE_NONE;
-		}
 	}
 }
+
 
 void BaseMaterial3D::set_point_size(float p_point_size) {
 	point_size = p_point_size;
@@ -3568,7 +3540,7 @@ void BaseMaterial3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "depth_test", PROPERTY_HINT_ENUM, "Default,Inverted"), "set_depth_test", "get_depth_test");
 
 	ADD_GROUP("Shading", "");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "shading_mode", PROPERTY_HINT_ENUM, "Unshaded,Per-Pixel,Per-Vertex"), "set_shading_mode", "get_shading_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "shading_mode", PROPERTY_HINT_ENUM, "Unshaded,Per-Pixel,Per-Vertex,Per-Vertex SH"), "set_shading_mode", "get_shading_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "diffuse_mode", PROPERTY_HINT_ENUM, "Burley,Lambert,Lambert Wrap,Toon"), "set_diffuse_mode", "get_diffuse_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "specular_mode", PROPERTY_HINT_ENUM, "SchlickGGX,Toon,Disabled"), "set_specular_mode", "get_specular_mode");
 	ADD_PROPERTYI(PropertyInfo(Variant::BOOL, "disable_ambient_light"), "set_flag", "get_flag", FLAG_DISABLE_AMBIENT_LIGHT);
@@ -3794,6 +3766,7 @@ void BaseMaterial3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(SHADING_MODE_UNSHADED);
 	BIND_ENUM_CONSTANT(SHADING_MODE_PER_PIXEL);
 	BIND_ENUM_CONSTANT(SHADING_MODE_PER_VERTEX);
+	BIND_ENUM_CONSTANT(SHADING_MODE_PER_VERTEX_SH);
 	BIND_ENUM_CONSTANT(SHADING_MODE_MAX);
 
 	BIND_ENUM_CONSTANT(FEATURE_EMISSION);

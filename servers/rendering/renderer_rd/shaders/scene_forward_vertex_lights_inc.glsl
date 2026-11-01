@@ -121,7 +121,9 @@ half sample_directional_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_si
 #endif // !SHADOWS_DISABLED
 
 
-void light_compute_vertex(
+#if (USE_VERTEX_LIGHTING == 0)
+
+void light_compute_vertex (
 		vec3 N, vec3 L, vec3 V, float W, vec3 light_color,
 		float roughness, float specular_amount,
 		inout vec3 diffuse_light, inout vec3 specular_light
@@ -176,6 +178,19 @@ void light_compute_vertex(
 #endif // !SPECULAR_DISABLED
 }
 
+#else // USE_VERTEX_LIGHTING == 1
+
+void light_project_sh (
+		in vec3 N, in vec3 L, in vec3 light_color, in float specular_mul,
+		inout vec4 sh_r, inout vec4 sh_g, inout vec4 sh_b, inout float sh_spec_scale
+	)
+{
+	sh_l1_project(L, light_color, sh_r, sh_g, sh_b);
+	sh_spec_scale += BASIS_L0 * dot(light_color, vec3(1.0/3.0)) * specular_mul;
+}
+
+#endif // USE_VERTEX_LIGHTING == 0/1
+
 
 float get_distance_attenuation (
 		in float distance, in float inv_range, in float area, in float decay)
@@ -202,7 +217,11 @@ float get_distance_attenuation (
 
 void light_process_omni_vertex (
 		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+#if (USE_VERTEX_LIGHTING == 0)
 		inout vec3 diffuse_light, inout vec3 specular_light
+#else  // USE_VERTEX_LIGHTING == 1
+		inout vec4 sh_r, inout vec4 sh_g, inout vec4 sh_b, inout float sh_spec_scale
+#endif // USE_VERTEX_LIGHTING == 0/1
 	)
 {
 	const LightData light_data = omni_lights.data[idx];
@@ -250,18 +269,29 @@ void light_process_omni_vertex (
 	}
 #endif // !SHADOWS_DISABLED
 
+#if (USE_VERTEX_LIGHTING == 0)
 	light_compute_vertex(
 			normal, light_dir, eye_vec, area_radius,
 			light_data.color * omni_attenuation,
 			roughness, light_data.specular_amount,
 			diffuse_light, specular_light
 	);
+#else  // USE_VERTEX_LIGHTING == 1
+	light_project_sh(
+			normal, light_dir, light_data.color * omni_attenuation, light_data.specular_amount,
+			sh_r, sh_g, sh_b, sh_spec_scale
+	);
+#endif // USE_VERTEX_LIGHTING == 0/1
 }
 
 
 void light_process_spot_vertex (
 		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+#if (USE_VERTEX_LIGHTING == 0)
 		inout vec3 diffuse_light, inout vec3 specular_light
+#else  // USE_VERTEX_LIGHTING == 1
+		inout vec4 sh_r, inout vec4 sh_g, inout vec4 sh_b, inout float sh_spec_scale
+#endif // USE_VERTEX_LIGHTING == 0/1
 	)
 {
 	const LightData light_data = spot_lights.data[idx];
@@ -307,10 +337,17 @@ void light_process_spot_vertex (
 	}
 #endif // !SHADOWS_DISABLED
 
+#if (USE_VERTEX_LIGHTING == 0)
 	light_compute_vertex(
 			normal, light_dir, eye_vec, area_radius,
 			light_data.color * spot_attenuation,
 			roughness, light_data.specular_amount,
 			diffuse_light, specular_light
 	);
+#else  // USE_VERTEX_LIGHTING == 1
+	light_project_sh(
+			normal, light_dir, light_data.color * spot_attenuation, light_data.specular_amount,
+			sh_r, sh_g, sh_b, sh_spec_scale
+	);
+#endif // USE_VERTEX_LIGHTING == 0/1
 }
