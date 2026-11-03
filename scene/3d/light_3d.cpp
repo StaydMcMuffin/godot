@@ -237,43 +237,61 @@ Light3D::BakeMode Light3D::get_bake_mode() const {
 	return bake_mode;
 }
 
-void Light3D::set_projector(const Ref<Texture2D> &p_texture) {
+/**
+ * Set the light's projector texture to \p p_texture .
+ *
+ * If \p p_texture is a valid `Texture2D`, this also automatically sets the light's \p projector_enabled property to `true`.
+ */
+void Light3D::set_projector (
+  const	Ref<Texture2D> &p_texture)
+{
 	projector = p_texture;
 	RID tex_id = projector.is_valid() ? projector->get_rid() : RID();
 
 #ifdef DEBUG_ENABLED
-	if (p_texture.is_valid() &&
-			(p_texture->is_class("AnimatedTexture") ||
-					p_texture->is_class("AtlasTexture") ||
-					p_texture->is_class("CameraTexture") ||
-					p_texture->is_class("CanvasTexture") ||
-					p_texture->is_class("MeshTexture") ||
-					p_texture->is_class("Texture2DRD") ||
-					p_texture->is_class("ViewportTexture"))) {
+	if (p_texture.is_valid() && (
+		p_texture->is_class("AnimatedTexture") ||
+		p_texture->is_class("AtlasTexture") ||
+		p_texture->is_class("CameraTexture") ||
+		p_texture->is_class("CanvasTexture") ||
+		p_texture->is_class("MeshTexture") ||
+		p_texture->is_class("Texture2DRD") ||
+		p_texture->is_class("ViewportTexture")
+	))
+	{
 		WARN_PRINT(vformat("%s cannot be used as a Light3D projector texture (%s). As a workaround, assign the value returned by %s's `get_image()` instead.", p_texture->get_class(), get_path(), p_texture->get_class()));
 	}
 #endif
 
 	RS::get_singleton()->light_set_projector(light, tex_id);
-	projector_enabled = tex_id.is_valid();
+	projector_enabled |= tex_id.is_valid();
 }
 
-Ref<Texture2D> Light3D::get_projector() const {
+/** Retrieve the light's projector texture. */
+Ref<Texture2D> Light3D::get_projector (
+	) const
+{
 	return projector;
 }
 
-
-void Light3D::set_projector_enabled(bool p_enable)
+/**
+ * Set the enabled state of the light's projector.
+ *
+ * When \p p_enable is `false`, this clears the light's projector texture `RID` but leaves its \p projector property unchanged.
+ */
+void Light3D::set_projector_enabled (
+		bool p_enable)
 {
 	projector_enabled = p_enable;
 	RID tex_id = (p_enable && projector.is_valid()) ? projector->get_rid() : RID();
 	RS::get_singleton()->light_set_projector(light, tex_id);
 }
 
-
-bool Light3D::get_projector_enabled() const
+/** Retrieve the enabled state of the light's projector. */
+bool Light3D::get_projector_enabled (
+	) const
 {
-	return projector_enabled && projector.is_valid();
+	return projector_enabled;
 }
 
 
