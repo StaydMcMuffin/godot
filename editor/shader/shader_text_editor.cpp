@@ -183,6 +183,7 @@ HashMap<String, String> TextShaderPreview::builtin_spatial_types = {
 	{ "LIGHT_VERTEX", "vec3" },
 	{ "TANGENT", "vec3" },
 	{ "BINORMAL", "vec3" },
+	{ "BITANGENT", "vec3" },
 	{ "ALBEDO", "vec3" },
 	{ "BACKLIGHT", "vec3" },
 	{ "EMISSION", "vec3" },

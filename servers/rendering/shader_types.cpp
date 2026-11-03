@@ -92,6 +92,7 @@ ShaderTypes::ShaderTypes() {
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["NORMAL"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["TANGENT"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["BINORMAL"] = ShaderLanguage::TYPE_VEC3;
+	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["BITANGENT"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["POSITION"] = ShaderLanguage::TYPE_VEC4;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["UV"] = ShaderLanguage::TYPE_VEC2;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["UV2"] = ShaderLanguage::TYPE_VEC2;
@@ -141,6 +142,7 @@ ShaderTypes::ShaderTypes() {
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["NORMAL"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["TANGENT"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["BINORMAL"] = ShaderLanguage::TYPE_VEC3;
+	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["BITANGENT"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["VIEW"] = constt(ShaderLanguage::TYPE_VEC3);
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["NORMAL_MAP"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["NORMAL_MAP_DEPTH"] = ShaderLanguage::TYPE_FLOAT;

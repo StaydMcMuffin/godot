@@ -155,7 +155,7 @@ float length2 (in vec3 v)	{ return dot(v, v); }
 float length2 (in vec4 v)	{ return dot(v, v); }
 
 
-void light_compute(
+void light_compute (
 		vec3 N, vec3 L, vec3 V, float W,
 		vec3 light_color, bool is_directional, half attenuation,
 		hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo,
@@ -179,63 +179,75 @@ void light_compute(
 		inout hvec3 diffuse_light, inout hvec3 specular_light
 	)
 {
-#if defined(LIGHT_CODE_USED)
+#ifdef LIGHT_CODE_USED
 	// Light is written by the user shader.
-	mat4 inv_view_matrix = transpose(mat4(scene_data_block.data.inv_view_matrix[0],
-			scene_data_block.data.inv_view_matrix[1],
-			scene_data_block.data.inv_view_matrix[2],
-			vec4(0.0, 0.0, 0.0, 1.0)));
-	mat4 read_view_matrix = transpose(mat4(scene_data_block.data.view_matrix[0],
-			scene_data_block.data.view_matrix[1],
-			scene_data_block.data.view_matrix[2],
-			vec4(0.0, 0.0, 0.0, 1.0)));
+	mat4 inv_view_matrix = transpose(
+		mat4(scene_data_block.data.inv_view_matrix[0],
+			 scene_data_block.data.inv_view_matrix[1],
+			 scene_data_block.data.inv_view_matrix[2],
+			 vec4(0.0, 0.0, 0.0, 1.0))
+	);
+	mat4 read_view_matrix = transpose(
+		mat4(scene_data_block.data.view_matrix[0],
+			 scene_data_block.data.view_matrix[1],
+			 scene_data_block.data.view_matrix[2],
+			 vec4(0.0, 0.0, 0.0, 1.0))
+	);
 
 #ifdef USING_MOBILE_RENDERER
 	uint instance_index = draw_call.instance_index;
 #else
 	uint instance_index = instance_index_interp;
-#endif
+#endif // USING_MOBILE_RENDERER
 
-	mat4 read_model_matrix = transpose(mat4(instances.data[instance_index].transform[0],
-			instances.data[instance_index].transform[1],
-			instances.data[instance_index].transform[2],
-			vec4(0.0, 0.0, 0.0, 1.0)));
+	mat4 read_model_matrix = transpose(
+		mat4(instances.data[instance_index].transform[0],
+			 instances.data[instance_index].transform[1],
+			 instances.data[instance_index].transform[2],
+			 vec4(0.0, 0.0, 0.0, 1.0))
+	);
 
 #undef projection_matrix
-#define projection_matrix scene_data_block.data.projection_matrix
+#define projection_matrix		scene_data_block.data.projection_matrix
 #undef inv_projection_matrix
-#define inv_projection_matrix scene_data_block.data.inv_projection_matrix
+#define inv_projection_matrix	scene_data_block.data.inv_projection_matrix
 
 	vec2 read_viewport_size = scene_data_block.data.viewport_size;
 
 #ifdef LIGHT_BACKLIGHT_USED
-	vec3 backlight_highp = vec3(backlight);
-#endif
-	float roughness_highp = float(roughness);
-	float metallic_highp = float(metallic);
-	vec3 albedo_highp = vec3(albedo);
-	float alpha_highp = float(alpha);
-	vec3 normal_highp = vec3(N);
-	vec3 light_highp = vec3(L);
-	vec3 view_highp = vec3(V);
-	float specular_amount_highp = float(specular_amount);
-	vec3 light_color_highp = vec3(light_color);
-	float attenuation_highp = float(attenuation);
-	vec3 diffuse_light_highp = vec3(diffuse_light);
-	vec3 specular_light_highp = vec3(specular_light);
+	vec3 GD_backlight = vec3(backlight);
+#endif // LIGHT_BACKLIGHT_USED
+	float GD_roughness = roughness;
+	float GD_metallic = metallic;
+	vec3 GD_albedo = vec3(albedo);
+	float GD_alpha = alpha;
+	vec3 GD_normal = vec3(N);
+	vec3 GD_light = vec3(L);
+	vec3 GD_view = vec3(V);
+	float GD_specular_amount = specular_amount;
+	vec3 GD_light_color = vec3(light_color);
+	float GD_attenuation = attenuation;
+	vec3 GD_diffuse_light = vec3(diffuse_light);
+	vec3 GD_specular_light = vec3(specular_light);
 	bool is_area = false;
 	float area_diffuse = 1.0;
 	float area_specular = 1.0;
 	vec3 area_diffuse_tex_color = vec3(1.0);
 	vec3 area_specular_tex_color = vec3(1.0);
 
+
+//////////////////////////////////////////////////////////////////////////////
+////  USER-SPACE LIGHT() CODE  //////////////////////////////////////////////
 	{
 #CODE : LIGHT
 	}
+////  ----------------------  ///////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
 
-	alpha = half(alpha_highp);
-	diffuse_light = hvec3(diffuse_light_highp);
-	specular_light = hvec3(specular_light_highp);
+
+	alpha = half(GD_alpha);
+	diffuse_light = hvec3(GD_diffuse_light);
+	specular_light = hvec3(GD_specular_light);
 #else  // LIGHT_CODE_USED
 
 	float cos_W = 0.0; float cos_W_norm = 1.0; float W_norm = 1.0;
@@ -1296,30 +1308,38 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	vec2 read_viewport_size = scene_data_block.data.viewport_size;
 
 #ifdef LIGHT_BACKLIGHT_USED
-	vec3 backlight_highp = vec3(backlight);
+	vec3 GD_backlight = vec3(backlight);
 #endif
-	float roughness_highp = float(roughness);
-	float metallic_highp = float(metallic);
-	vec3 albedo_highp = vec3(albedo);
-	float alpha_highp = float(alpha);
-	vec3 normal_highp = vec3(normal);
-	vec3 light_highp = (light_center - vertex) / light_length;
-	vec3 view_highp = vec3(eye_vec);
-	float specular_amount_highp = float(area_lights.data[idx].specular_amount);
-	vec3 light_color_highp = vec3(color);
-	float attenuation_highp = float(light_attenuation_ltc);
-	vec3 diffuse_light_highp = vec3(diffuse_light);
-	vec3 specular_light_highp = vec3(specular_light);
+	float GD_roughness = float(roughness);
+	float GD_metallic = float(metallic);
+	vec3 GD_albedo = vec3(albedo);
+	float GD_alpha = float(alpha);
+	vec3 GD_normal = vec3(normal);
+	vec3 GD_light = (light_center - vertex) / light_length;
+	vec3 GD_view = vec3(eye_vec);
+	float GD_specular_amount = float(area_lights.data[idx].specular_amount);
+	vec3 GD_light_color = vec3(color);
+	float GD_attenuation = float(light_attenuation_ltc);
+	vec3 GD_diffuse_light = vec3(diffuse_light);
+	vec3 GD_specular_light = vec3(specular_light);
 	bool is_directional = false;
 	bool is_area = true;
 	vec3 area_diffuse = ltc_diffuse * ltc_diffuse_tex_color;
 	vec3 area_specular = ltc_specular * vec3(fresnel_color) * ltc_specular_tex_color;
 
-#CODE : LIGHT
 
-	alpha = half(alpha_highp);
-	diffuse_light = hvec3(diffuse_light_highp);
-	specular_light = hvec3(specular_light_highp);
+//////////////////////////////////////////////////////////////////////////////
+////  USER-SPACE LIGHT() CODE  //////////////////////////////////////////////
+	{
+#CODE : LIGHT
+	}
+////  ----------------------  ///////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
+
+
+	alpha = half(GD_alpha);
+	diffuse_light = hvec3(GD_diffuse_light);
+	specular_light = hvec3(GD_specular_light);
 
 #else
 	half specular_amount = half(area_lights.data[idx].specular_amount);
