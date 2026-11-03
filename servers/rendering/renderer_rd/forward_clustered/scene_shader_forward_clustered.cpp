@@ -903,7 +903,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		actions.base_texture_binding_index = 1;
 		actions.texture_layout_set = RenderForwardClustered::MATERIAL_UNIFORM_SET;
 		actions.base_uniform_string = "material.";
-		actions.base_varying_index = 15;
+		actions.base_varying_index = 16;  // Must be kept in-sync with `scene_forward_clustered.glsl` varyings.
 
 		actions.default_filter = ShaderLanguage::FILTER_LINEAR_MIPMAP;
 		actions.default_repeat = ShaderLanguage::REPEAT_ENABLE;
