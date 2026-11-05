@@ -1164,7 +1164,7 @@ void LightStorage::update_light_buffers(
 				proj_min_axis = proj_min_axis >> 1;
 				max_mip++;
 			}
-			light_data.inv_spot_attenuation = std::exp2(float(MAX(0, max_mip - 1))) - 1.0;
+			light_data.inv_spot_attenuation = std::exp2(float(MAX(0, (int)max_mip - 1))) - 1.0;
 			light_data.inv_spot_attenuation *= light_data.inv_spot_attenuation;
 
 			if (type == RSE::LIGHT_SPOT)

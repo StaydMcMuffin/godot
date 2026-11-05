@@ -3926,9 +3926,9 @@ void TextureStorage::update_decal_atlas()
 		}
 
 		decal_atlas.size.width = base_size * border;
-		decal_atlas.size.height = Math::nearest_power_of_2_templated(atlas_height * border);
+		decal_atlas.size.height = Math::nearest_power_of_2_templated(atlas_height * (int)border);
 
-		uint32_t atlas_min_axis = MIN(decal_atlas.size.width, decal_atlas.size.height);
+		int atlas_min_axis = MIN(decal_atlas.size.width, decal_atlas.size.height);
 		decal_atlas.mipmaps = MAX(decal_atlas.mipmaps, Math::floor_log2(atlas_min_axis) - decal_atlas.mipmaps);
 
 		for (int i = 0; i < item_count; i++)
@@ -4008,12 +4008,12 @@ void TextureStorage::update_decal_atlas()
 				src_view.swizzle_b = RD::TEXTURE_SWIZZLE_R;
 			}
 			
-			for (int i = 0; i < decal_atlas_mipmaps; i++)
+			for (uint32_t i = 0; i < decal_atlas_mipmaps; i++)
 			{
 				const DecalAtlas::MipMap &decal_atlas_mip = decal_atlas.texture_mipmaps[i];
 				RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(decal_atlas_mip.fb, RD::DRAW_DEFAULT_ALL, cc);
 				
-				if (i < src_tex->mipmaps && i > 0)
+				if (i < (uint32_t)src_tex->mipmaps && i > 0u)
 				{
 					// Blit from mips.
 					RID rd_source_texture_mip = RD::get_singleton()->texture_create_shared_from_slice(src_view, src_tex->rd_texture, 0, i);
