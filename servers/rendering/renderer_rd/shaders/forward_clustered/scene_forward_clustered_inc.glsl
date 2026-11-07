@@ -1,9 +1,15 @@
-#define M_PI 3.14159265359
-#define M_TAU 6.28318530718
-#define ROUGHNESS_MAX_LOD 5
+#define M_PI					3.14159265359
+#define M_TAU					6.28318530718
 
-#define MAX_VOXEL_GI_INSTANCES 8
-#define MAX_VIEWS 2
+#define MIN_ROUGHNESS			0.045  // From Filament, minimum roughness such that MIN_ROUGHNESS^4 > 0 in fp32.
+#define MIN_ROUGHNESS_SQR		0.002025
+#define CLEARCOAT_ROUGHNESS		0.3  // Clearcoat layer's roughness when clearcoat_roughness is 1 (MIN_ROUGHNESS when it's 0).
+#define CLEARCOAT_ROUGHNESS_SQR	(CLEARCOAT_ROUGHNESS*CLEARCOAT_ROUGHNESS)
+#define MIN_NDOTV				0.001
+#define MIN_NDOTH				0.0001
+
+#define MAX_VOXEL_GI_INSTANCES	8
+#define MAX_VIEWS				2
 
 
 #extension GL_KHR_shader_subgroup_ballot : enable
@@ -16,11 +22,11 @@
 #include "../scene_data_inc.glsl"
 
 
-#if !defined(MODE_RENDER_DEPTH) || defined(MODE_RENDER_MATERIAL) || defined(MODE_RENDER_SDF) || defined(MODE_RENDER_NORMAL_ROUGHNESS) || defined(MODE_RENDER_VOXEL_GI) || defined(TANGENT_USED) || defined(NORMAL_MAP_USED) || defined(BENT_NORMAL_MAP_USED) || defined(LIGHT_ANISOTROPY_USED)
+#if !defined(MODE_RENDER_PREPASS) || defined(MODE_RENDER_MATERIAL) || defined(MODE_RENDER_SDF) || defined(MODE_RENDER_NORMAL_ROUGHNESS) || defined(MODE_RENDER_VOXEL_GI) || defined(TANGENT_USED) || defined(NORMAL_MAP_USED) || defined(BENT_NORMAL_MAP_USED) || defined(LIGHT_ANISOTROPY_USED)
 #ifndef NORMAL_USED
 #define NORMAL_USED  // Ensure normals are enabled when needed.
 #endif // !NORMAL_USED
-#endif // !MODE_RENDER_DEPTH || MODE_RENDER_MATERIAL || MODE_RENDER_SDF || MODE_RENDER_NORMAL_ROUGHNESS || MODE_RENDER_VOXEL_GI || TANGENT_USED || NORMAL_MAP_USED || BENT_NORMAL_MAP_USED || LIGHT_ANISOTROPY_USED
+#endif // !MODE_RENDER_PREPASS || MODE_RENDER_MATERIAL || MODE_RENDER_SDF || MODE_RENDER_NORMAL_ROUGHNESS || MODE_RENDER_VOXEL_GI || TANGENT_USED || NORMAL_MAP_USED || BENT_NORMAL_MAP_USED || LIGHT_ANISOTROPY_USED
 
 #if !defined(TANGENT_USED) && (defined(NORMAL_MAP_USED) || defined(BENT_NORMAL_MAP_USED) || defined(LIGHT_ANISOTROPY_USED))
 #define TANGENT_USED  // Ensure tangents are enabled when needed.

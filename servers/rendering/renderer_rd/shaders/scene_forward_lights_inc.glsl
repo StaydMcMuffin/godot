@@ -76,11 +76,11 @@ half SchlickFresnel(half u) {
 	return m2 * m2 * m; // pow(m,5)
 }
 
-hvec3 F0(half metallic, half specular, hvec3 albedo) {
-	half dielectric = half(0.16) * specular * specular;
-	// use albedo * metallic as colored specular reflectance at 0 angle for metallic materials;
-	// see https://google.github.io/filament/Filament.md.html
-	return mix(hvec3(dielectric), albedo, hvec3(metallic));
+/// Calculate dielectric f0 from [0,1] specular factor.
+/// See: https://google.github.io/filament/Filament.md.html
+float get_dielectric_f0 (float specular)
+{
+	return 0.16 * specular * specular;
 }
 
 half V_Kelemen(half LdotH) {
@@ -88,11 +88,24 @@ half V_Kelemen(half LdotH) {
 	return saturateHalf(half(0.25) / (LdotH * LdotH + half(1e-4)));
 }
 
-hvec3 f0_Clear_Coat_To_Surface(hvec3 f0) {
-	// Approximation of iorTof0(f0ToIor(f0), 1.5)
-	// This assumes that the clear coat layer has an IOR of 1.5
-	// see https://github.com/google/filament/blob/837b2715a05f4656d4f524bce50d1b23ff8f84c9/shaders/src/surface_material.fs#L54-L62
-	return clamp(f0 * (f0 * (half(0.941892) - half(0.263008) * f0) + half(0.346479)) - half(0.0285998), half(0.0), half(1.0));
+vec3 F0toIoR (vec3 f0)
+{
+    vec3 r = sqrt(f0);
+    return (1.0 + r) / (1.0 - r);
+}
+vec3 IoRtoF0 (vec3 transmittedIor, float incidentIor)
+{
+	vec3 f0_sqrt = (transmittedIor - incidentIor) / (transmittedIor + incidentIor);
+    return f0_sqrt * f0_sqrt;
+}
+
+// Approximation of (IoRtoF0(F0toIoR(f0), 1.5)), from Filament.
+// This assumes that the clearcoat layer has an IOR of 1.5.
+// See: https://github.com/google/filament/blob/837b2715a05f4656d4f524bce50d1b23ff8f84c9/shaders/src/surface_material.fs#L54-L62
+vec3 f0_clearcoat_adjust (vec3 f0)
+{
+	return clamp(f0 * (f0 * (f0 * -0.263008 + 0.941892) + 0.346479) - 0.0285998, 0.0, 1.0);
+	//return IoRtoF0(F0toIoR(f0), 1.5);
 }
 
 
@@ -158,8 +171,14 @@ float length2 (in vec4 v)	{ return dot(v, v); }
 void light_compute (
 		vec3 N, vec3 L, vec3 V, float W,
 		vec3 light_color, bool is_directional, half attenuation,
-		hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo,
-		inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
+		vec3 f0, float f90, float roughness, half specular_amount,
+#if defined(LIGHT_CODE_USED) || defined(LIGHT_RIM_USED)
+		vec3 albedo,
+#endif // LIGHT_CODE_USED || LIGHT_RIM_USED
+#ifdef LIGHT_CODE_USED
+		float metallic,
+#endif // LIGHT_CODE_USED
+		inout half alpha, vec2 screen_uv, hvec3 energy_compensation, float direct_ao,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
 #endif // LIGHT_BACKLIGHT_USED
@@ -174,9 +193,9 @@ void light_compute (
 		half clearcoat, half clearcoat_roughness, hvec3 gN,
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef LIGHT_ANISOTROPY_USED
-		hvec3 B, hvec3 T, half anisotropy,
+		hvec3 T, hvec3 B, half anisotropy,
 #endif // LIGHT_ANISOTROPY_USED
-		inout hvec3 diffuse_light, inout hvec3 specular_light
+		inout hvec3 diffuse_accum, inout hvec3 specular_accum
 	)
 {
 #ifdef LIGHT_CODE_USED
@@ -227,8 +246,8 @@ void light_compute (
 	float GD_specular_amount = specular_amount;
 	vec3 GD_light_color = vec3(light_color);
 	float GD_attenuation = attenuation;
-	vec3 GD_diffuse_light = vec3(diffuse_light);
-	vec3 GD_specular_light = vec3(specular_light);
+	vec3 GD_diffuse_light = vec3(0.0);
+	vec3 GD_specular_light = vec3(0.0);
 	bool is_area = false;
 	float area_diffuse = 1.0;
 	float area_specular = 1.0;
@@ -245,10 +264,14 @@ void light_compute (
 ////////////////////////////////////////////////////////////////////////
 
 
-	alpha = half(GD_alpha);
-	diffuse_light = hvec3(GD_diffuse_light);
-	specular_light = hvec3(GD_specular_light);
+	alpha = GD_alpha;
+	diffuse_accum += GD_diffuse_light;
+	specular_accum += GD_specular_light;
 #else  // LIGHT_CODE_USED
+	vec3 diffuse_light = vec3(0.0);
+#ifndef SPECULAR_DISABLED
+	vec3 specular_light = vec3(0.0);
+#endif // SPECULAR_DISABLED
 
 	float cos_W = 0.0; float cos_W_norm = 1.0; float W_norm = 1.0;
 	if (W > 0.0)
@@ -260,7 +283,7 @@ void light_compute (
 	}
 
 	float NdotL = clamp((W + dot(N, L)) * W_norm, -1.0, 1.0);
-	float cNdotV = clamp(dot(N, V), 0.001, 1.0);
+	float cNdotV = clamp(dot(N, V), MIN_NDOTV, 1.0);
 
 #ifdef LIGHT_TRANSMITTANCE_USED
 #ifdef SSS_MODE_SKIN
@@ -286,22 +309,21 @@ void light_compute (
 		half cLdotH5 = SchlickFresnel(cLdotH);
 #endif // DIFFUSE_BURLEY || SPECULAR_SCHLICK_GGX || LIGHT_CLEARCOAT_USED
 
-		half cc_attenuation = half(1.0);
+		float cc_attenuation = 1.0;
 #if defined(LIGHT_CLEARCOAT_USED) && !defined(SPECULAR_DISABLED)
 		// Clearcoat ignores normal_map, use vertex normal instead
-		half ccNdotL = clamp((W + dot(gN, L)) * W_norm, 0.0, 1.0);
-		half ccNdotH = clamp((W + dot(gN, H)) * W_norm, 0.0001, 1.0);
+		float ccNdotL = clamp((W + dot(gN, L)) * W_norm, 0.0, 1.0);
+		float ccNdotH = clamp((W + dot(gN, H)) * W_norm, MIN_NDOTH, 1.0);
 
-		float Dr = D_GGX(ccNdotH, mix(0.001, 0.1, clearcoat_roughness));
-		half Gr = V_Kelemen(cLdotH);
-		half Fr = mix(half(0.04), half(1.0), cLdotH5) * clearcoat;
-		cc_attenuation = half(1.0) - Fr;
-		half cc_specular = Dr * Gr * Fr * ccNdotL;
+		float ccD = D_GGX(ccNdotH, clearcoat_roughness);
+		float ccV = V_Kelemen(cLdotH);
+		float ccF = mix(0.04, 1.0, cLdotH5) * clearcoat;
+		cc_attenuation = 1.0 - ccF;
+		float cc_specular = ccD * ccV * ccF * ccNdotL;
 		specular_light += cc_specular * light_color * attenuation * specular_amount;
 #endif // LIGHT_CLEARCOAT_USED && !SPECULAR_DISABLED
 
 		// Diffuse //
-		if (metallic < 1.0)
 		{
 #if defined(DIFFUSE_LAMBERT_WRAP)
 			// Energy conserving lambert wrap shader.
@@ -329,42 +351,46 @@ void light_compute (
 
 #ifndef SPECULAR_DISABLED
 		// Specular //
-		if ((specular_amount + metallic) > 0.0)
+		if (f90 > 0.0)
 		{
 #ifdef SPECULAR_TOON
 			hvec3 R = normalize(-reflect(L, N));
 			half RdotV = (W + dot(R, V)) * W_norm;
 			half mid = 1.0 - roughness; mid *= mid;
 			half intensity = smoothstep(mid - roughness * half(0.5), mid + roughness * half(0.5), RdotV) * mid;
-			diffuse_light += light_color * intensity * attenuation * specular_amount;  // Toon shading writes to diffuse_light, so specularity is affected by diffuse color.
+			diffuse_light += light_color * intensity * attenuation * specular_amount;  // Toon shading writes to diffuse_accum, so specularity is affected by diffuse color.
 #else  // SPECULAR_SCHLICK_GGX
 			// GGX
-			float cNdotH = clamp((W + dot(N, H)) * W_norm, 0.0001, 1.0);
-			//float cNdotH = clamp(sin(clamp(W + asin(dot(N, H)), -1.5707, 1.5707)), 0.0001, 1.0);
+			float cNdotH = clamp((W + dot(N, H)) * W_norm, MIN_NDOTH, 1.0);
+			//float cNdotH = clamp(sin(clamp(W + asin(dot(N, H)), -1.5707, 1.5707)), MIN_NDOTH, 1.0);
 			float alpha_ggx = roughness * roughness;
 
 #ifdef LIGHT_ANISOTROPY_USED
-			half aspect = sqrt(half(1.0) - anisotropy * half(0.9));
+			half aspect = sqrt(half(1.0) - abs(anisotropy) * half(0.9));
 			half ax = alpha_ggx / aspect;
 			half ay = alpha_ggx * aspect;
+			if (anisotropy < 0.0)
+			{
+				float atemp = ax;
+				ax = ay;
+				ay = atemp;
+			}
 			half XdotH = dot(T, H);
 			half YdotH = dot(B, H);
 			half D = D_GGX_anisotropic(cNdotH, ax, ay, XdotH, YdotH);
-			half G = V_GGX_anisotropic(ax, ay, dot(T, V), dot(T, L), dot(B, V), dot(B, L), cNdotV, cNdotL);
+			half V = V_GGX_anisotropic(ax, ay, dot(T, V), dot(T, L), dot(B, V), dot(B, L), cNdotV, cNdotL);
 #else  // LIGHT_ANISOTROPY_USED
 			float D = D_GGX(cNdotH, alpha_ggx);
-			half G = V_GGX(cNdotL, cNdotV, alpha_ggx);
+			float V = V_GGX(cNdotL, cNdotV, alpha_ggx);
 #endif // LIGHT_ANISOTROPY_USED
-
-			// Calculate Fresnel using specular occlusion term from Filament:
-			// https://google.github.io/filament/Filament.html#lighting/occlusion/specularocclusion
-			half f90 = clamp(dot(f0, hvec3(50.0 * 0.33)), metallic, half(1.0));
 			hvec3 F = f0 + (f90 - f0) * cLdotH5;
-			hvec3 specular = energy_compensation * cNdotL * D * F * G;
+			hvec3 specular = energy_compensation * cNdotL * D * F * V;
 			specular_light += light_color * specular * attenuation * cc_attenuation * specular_amount;
 #endif // SPECULAR_MODE
 		}
+		specular_accum += specular_light * direct_ao;
 #endif // !SPECULAR_DISABLED
+		diffuse_accum += diffuse_light * direct_ao;
 
 #ifdef USE_SHADOW_TO_OPACITY
 		alpha = min(alpha, clamp(half(1.0 - attenuation), half(0.0), half(1.0)));
@@ -565,10 +591,16 @@ float get_distance_attenuation (
 void light_process_omni (
 		uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal,
 		vec3 vertex_ddx, vec3 vertex_ddy,
-		hvec3 f0, half roughness, half metallic,
-		float taa_frame_count, hvec3 albedo,
+		vec3 f0, float f90, half roughness,
+		float taa_frame_count,
+#if defined(LIGHT_CODE_USED) || defined(LIGHT_RIM_USED)
+		vec3 albedo,
+#endif // LIGHT_CODE_USED || LIGHT_RIM_USED
+#ifdef LIGHT_CODE_USED
+		float metallic,
+#endif // LIGHT_CODE_USED
 		inout half alpha,
-		vec2 screen_uv, hvec3 energy_compensation,
+		vec2 screen_uv, hvec3 energy_compensation, float direct_ao,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
 #endif // LIGHT_BACKLIGHT_USED
@@ -582,9 +614,9 @@ void light_process_omni (
 		half clearcoat, half clearcoat_roughness, hvec3 vertex_normal,
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef LIGHT_ANISOTROPY_USED
-		hvec3 binormal, hvec3 tangent, half anisotropy,
+		hvec3 tangent, hvec3 bitangent, half anisotropy,
 #endif // LIGHT_ANISOTROPY_USED
-		inout hvec3 diffuse_light, inout hvec3 specular_light
+		inout hvec3 diffuse_accum, inout hvec3 specular_accum
 	)
 {
 	const LightData light_data = omni_lights.data[idx];
@@ -830,8 +862,14 @@ void light_process_omni (
 	light_compute(
 			normal, light_dir, eye_vec, area_radius,
 			color, false, omni_attenuation * shadow,
-			f0, roughness, metallic, light_data.specular_amount, albedo,
-			alpha, screen_uv, energy_compensation,
+			f0, f90, roughness, light_data.specular_amount,
+#if defined(LIGHT_CODE_USED) || defined(LIGHT_RIM_USED)
+			albedo,
+#endif // LIGHT_CODE_USED || LIGHT_RIM_USED
+#ifdef LIGHT_CODE_USED
+			metallic,
+#endif // LIGHT_CODE_USED
+			alpha, screen_uv, energy_compensation, direct_ao,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
 #endif // LIGHT_BACKLIGHT_USED
@@ -846,9 +884,9 @@ void light_process_omni (
 			clearcoat, clearcoat_roughness, vertex_normal,
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef LIGHT_ANISOTROPY_USED
-			binormal, tangent, anisotropy,
+			tangent, bitangent, anisotropy,
 #endif // LIGHT_ANISOTROPY_USED
-			diffuse_light, specular_light
+			diffuse_accum, specular_accum
 	);
 }
 
@@ -856,10 +894,16 @@ void light_process_omni (
 void light_process_spot (
 		uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal,
 		vec3 vertex_ddx, vec3 vertex_ddy,
-		hvec3 f0, half roughness, half metallic,
-		float taa_frame_count, hvec3 albedo,
+		vec3 f0, float f90, half roughness,
+		float taa_frame_count,
+#if defined(LIGHT_CODE_USED) || defined(LIGHT_RIM_USED)
+		vec3 albedo,
+#endif // LIGHT_CODE_USED || LIGHT_RIM_USED
+#ifdef LIGHT_CODE_USED
+		float metallic,
+#endif // LIGHT_CODE_USED
 		inout half alpha,
-		vec2 screen_uv, hvec3 energy_compensation,
+		vec2 screen_uv, hvec3 energy_compensation, float direct_ao,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
 #endif // LIGHT_BACKLIGHT_USED
@@ -873,9 +917,9 @@ void light_process_spot (
 		half clearcoat, half clearcoat_roughness, hvec3 vertex_normal,
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef LIGHT_ANISOTROPY_USED
-		hvec3 binormal, hvec3 tangent, half anisotropy,
+		hvec3 tangent, hvec3 bitangent, half anisotropy,
 #endif // LIGHT_ANISOTROPY_USED
-		inout hvec3 diffuse_light, inout hvec3 specular_light
+		inout hvec3 diffuse_accum, inout hvec3 specular_accum
 	)
 {
 	const LightData light_data = spot_lights.data[idx];
@@ -1060,8 +1104,14 @@ void light_process_spot (
 	light_compute(
 			normal, light_dir, eye_vec, area_radius,
 			color, false, spot_attenuation * shadow,
-			f0, roughness, metallic, light_data.specular_amount, albedo,
-			alpha, screen_uv, energy_compensation,
+			f0, f90, roughness, light_data.specular_amount,
+#if defined(LIGHT_CODE_USED) || defined(LIGHT_RIM_USED)
+			albedo,
+#endif // LIGHT_CODE_USED || LIGHT_RIM_USED
+#ifdef LIGHT_CODE_USED
+			metallic,
+#endif // LIGHT_CODE_USED
+			alpha, screen_uv, energy_compensation, direct_ao,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
 #endif // LIGHT_BACKLIGHT_USED
@@ -1076,15 +1126,27 @@ void light_process_spot (
 			clearcoat, clearcoat_roughness, vertex_normal,
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef LIGHT_ANISOTROPY_USED
-			binormal, tangent, anisotropy,
+			tangent, bitangent, anisotropy,
 #endif // LIGHT_ANISOTROPY_USED
-			diffuse_light, specular_light
+			diffuse_accum, specular_accum
 	);
 }
 
 
 // implementation of area lights with Linearly Transformed Cosines (LTC): https://eheitzresearch.wordpress.com/415-2/
-void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3 vertex_ddx, vec3 vertex_ddy, hvec3 f0, half roughness, half metallic, float taa_frame_count, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
+void light_process_area (
+		uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal,
+		vec3 vertex_ddx, vec3 vertex_ddy,
+		vec3 f0, float f90, half roughness,
+		float taa_frame_count,
+#if (defined(LIGHT_CODE_USED) && defined(AREA_LIGHT_CODE_USED)) || defined(LIGHT_RIM_USED)
+		vec3 albedo,
+#endif // (LIGHT_CODE_USED && AREA_LIGHT_CODE_USED) || LIGHT_RIM_USED
+#if defined(LIGHT_CODE_USED) && defined(AREA_LIGHT_CODE_USED)
+		float metallic,
+#endif // LIGHT_CODE_USED && AREA_LIGHT_CODE_USED
+		inout half alpha,
+		vec2 screen_uv, hvec3 energy_compensation, float direct_ao,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
 #endif
@@ -1100,9 +1162,11 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		half clearcoat, half clearcoat_roughness, hvec3 vertex_normal,
 #endif
 #ifdef LIGHT_ANISOTROPY_USED
-		hvec3 binormal, hvec3 tangent, half anisotropy,
+		hvec3 tangent, hvec3 bitangent, half anisotropy,
 #endif
-		inout hvec3 diffuse_light, inout hvec3 specular_light) {
+		inout hvec3 diffuse_accum, inout hvec3 specular_accum
+	)
+{
 	half EPSILON = half(1e-7);
 	hvec3 area_width = hvec3(area_lights.data[idx].area_width);
 	hvec3 area_height = hvec3(area_lights.data[idx].area_height);
@@ -1274,7 +1338,6 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 
 #if !defined(SPECULAR_DISABLED) || (defined(LIGHT_CODE_USED) && defined(AREA_LIGHT_CODE_USED))
 	ltc_evaluate_specular(vec3(normal), vec3(eye_vec), roughness, points, area_lights.data[idx].projector_rect, max_mipmap, area_light_atlas, SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP, ltc_lut1, ltc_lut2, ltc_specular, ltc_fresnel, ltc_specular_tex_color);
-	half f90 = clamp(dot(f0, hvec3(50.0 * 0.33)), metallic, half(1.0));
 	fresnel_color = f0 * max(half(ltc_fresnel.x), half(0.0)) + (f90 - f0) * max(half(ltc_fresnel.y), half(0.0));
 #endif
 
@@ -1320,8 +1383,8 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	float GD_specular_amount = float(area_lights.data[idx].specular_amount);
 	vec3 GD_light_color = vec3(color);
 	float GD_attenuation = float(light_attenuation_ltc);
-	vec3 GD_diffuse_light = vec3(diffuse_light);
-	vec3 GD_specular_light = vec3(specular_light);
+	vec3 GD_diffuse_light = vec3(0.0);
+	vec3 GD_specular_light = vec3(0.0);
 	bool is_directional = false;
 	bool is_area = true;
 	vec3 area_diffuse = ltc_diffuse * ltc_diffuse_tex_color;
@@ -1337,11 +1400,17 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 ////////////////////////////////////////////////////////////////////////
 
 
-	alpha = half(GD_alpha);
-	diffuse_light = hvec3(GD_diffuse_light);
-	specular_light = hvec3(GD_specular_light);
+	alpha = GD_alpha;
+	diffuse_accum += GD_diffuse_light * direct_ao;
+	specular_accum += GD_specular_light * direct_ao;
 
 #else
+
+	vec3 diffuse_light = vec3(0.0);
+#ifndef SPECULAR_DISABLED
+	vec3 specular_light = vec3(0.0);
+#endif // SPECULAR_DISABLED
+
 	half specular_amount = half(area_lights.data[idx].specular_amount);
 	half area = a_len * b_len;
 	half cc_attenuation = half(1.0);
@@ -1401,13 +1470,13 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	vec3 cc_specular_tex_color = vec3(1.0);
 	float cc_specular_ltc = 0.0;
 	vec2 cc_fresnel;
-	ltc_evaluate_specular(vec3(vertex_normal), vec3(eye_vec), sqrt(mix(0.001, 0.1, float(clearcoat_roughness))), points, area_lights.data[idx].projector_rect, max_mipmap, area_light_atlas, SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP, ltc_lut1, ltc_lut2, cc_specular_ltc, cc_fresnel, cc_specular_tex_color);
+	ltc_evaluate_specular(vec3(vertex_normal), vec3(eye_vec), sqrt(clearcoat_roughness), points, area_lights.data[idx].projector_rect, max_mipmap, area_light_atlas, SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP, ltc_lut1, ltc_lut2, cc_specular_ltc, cc_fresnel, cc_specular_tex_color);
 	half Fr = (half(0.04) * max(half(cc_fresnel.x), half(0.0)) + half(1.0 - 0.04) * max(half(cc_fresnel.y), half(0.0))) * clearcoat;
 	cc_attenuation = half(1.0) - Fr;
 	specular_light += half(cc_specular_ltc) * hvec3(cc_specular_tex_color) * Fr * color * light_attenuation_ltc * specular_amount;
 #endif // LIGHT_CLEARCOAT_USED
 
-	if (metallic < half(1.0)) {
+	{
 #if defined(DIFFUSE_TOON)
 		float backface_ltc_diffuse = 0.0;
 		vec3 backface_ltc_tex_color_discard = vec3(1.0);
@@ -1426,7 +1495,7 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 
 #if defined(LIGHT_RIM_USED) // same as for point lights
-	half cNdotV = max(dot(normal, eye_vec), half(1e-4));
+	half cNdotV = max(dot(normal, eye_vec), MIN_NDOTV);
 	half rim_light = pow(max(half(1e-4), half(1.0) - cNdotV), max(half(0.0), (half(1.0) - roughness) * half(16.0)));
 	diffuse_light += rim_light * rim * mix(hvec3(1.0), albedo, rim_tint) * isotropic_light_color * color * half(solid_angle) * light_attenuation_ltc;
 #endif
@@ -1438,7 +1507,7 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 
 	half RdotV = half(ltc_specular / (max(solid_angle, 0.001) / (M_PI)));
 	half intensity = smoothstep(mid - roughness * half(0.5), mid + roughness * half(0.5), RdotV) * mid; // should we use specular tex color here?? or diffuse? or white?
-	diffuse_light += intensity * hvec3(ltc_specular_tex_color) * color * area * light_attenuation * specular_amount; // write to diffuse_light, as in toon shading you generally want no reflection
+	diffuse_light += intensity * hvec3(ltc_specular_tex_color) * color * area * light_attenuation * specular_amount; // write to diffuse_accum, as in toon shading you generally want no reflection
 #elif defined(SPECULAR_DISABLED)
 	// do nothing
 #else
@@ -1446,8 +1515,14 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	specular_light += spec * specular_amount * light_attenuation_ltc * cc_attenuation;
 #endif // SPECULAR_TOON
 
+	diffuse_accum += diffuse_light * direct_ao;
+#ifndef SPECULAR_DISABLED
+	specular_accum += specular_light * direct_ao;
+#endif // !SPECULAR_DISABLED
+
 #endif // LIGHT_CODE_USED
 }
+
 
 void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal, half roughness, hvec3 ambient_light,
 #ifdef LIGHT_CLEARCOAT_USED

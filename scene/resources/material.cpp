@@ -2445,18 +2445,24 @@ BaseMaterial3D::DiffuseMode BaseMaterial3D::get_diffuse_mode() const {
 	return diffuse_mode;
 }
 
-void BaseMaterial3D::set_specular_mode(SpecularMode p_mode) {
-	if (specular_mode == p_mode) {
+
+void BaseMaterial3D::set_specular_mode (
+		SpecularMode p_mode
+	)
+{
+	if (specular_mode == p_mode)
 		return;
-	}
 
 	specular_mode = p_mode;
 	_queue_shader_change();
+	notify_property_list_changed();
 }
 
-BaseMaterial3D::SpecularMode BaseMaterial3D::get_specular_mode() const {
+BaseMaterial3D::SpecularMode BaseMaterial3D::get_specular_mode() const
+{
 	return specular_mode;
 }
+
 
 void BaseMaterial3D::set_flag(Flags p_flag, bool p_enabled) {
 	ERR_FAIL_INDEX(p_flag, FLAG_MAX);
@@ -2692,6 +2698,17 @@ void BaseMaterial3D::_validate_property(
 		else if (p_property.name.begins_with("backlight"))
 			p_property.usage = PROPERTY_USAGE_NONE;
 		else if (p_property.name.begins_with("transmittance"))
+			p_property.usage = PROPERTY_USAGE_NONE;
+	}
+
+	// SPECULAR_DISABLED now disables all reflections, so hide all specular-related properties in that mode.
+	if (specular_mode == SPECULAR_DISABLED)
+	{
+		if (p_property.name.begins_with("metallic"))
+			p_property.usage = PROPERTY_USAGE_NONE;
+		else if (p_property.name.begins_with("clearcoat"))
+			p_property.usage = PROPERTY_USAGE_NONE;
+		else if (p_property.name.begins_with("anisotropy"))
 			p_property.usage = PROPERTY_USAGE_NONE;
 	}
 }
