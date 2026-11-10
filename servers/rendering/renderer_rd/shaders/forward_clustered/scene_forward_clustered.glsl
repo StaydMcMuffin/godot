@@ -1014,6 +1014,10 @@ void main()
 #define LIGHT_TRANSMITTANCE_USED  // Both required for transmittance to be enabled.
 #endif // ENABLE_SSS && ENABLE_TRANSMITTANCE
 
+#if !defined(AMBIENT_LIGHT_DISABLED) && defined(USE_LIGHTMAP) && !defined(SPECULAR_DISABLED) && !defined(SPECULAR_OCCLUSION_DISABLED)
+#define USE_IRRADIANCE_MATCHING  // Convenience, indicates Iradiance Matching can be used.
+#endif // !AMBIENT_LIGHT_DISABLED && USE_LIGHTMAP && !SPECULAR_DISABLED && !SPECULAR_OCCLUSION_DISABLED
+
 
 #include "../half_inc.glsl"
 #include "scene_forward_clustered_inc.glsl"
@@ -1156,6 +1160,8 @@ ivec2 multiview_uv (ivec2 uv)	{ return uv; }
 #include "../scene_forward_aa_inc.glsl"
 #endif // ALPHA_HASH_USED || ALPHA_ANTIALIASING_EDGE_USED
 
+#if !defined(MODE_RENDER_PREPASS) && !defined(MODE_UNSHADED)
+
 #ifdef USE_LIGHTMAP
 // w0, w1, w2, and w3 are the four cubic B-spline basis functions
 float w0 (float a)	{ return (1.0 / 6.0) * (a * (a * (-a + 3.0) - 3.0) + 1.0); }
@@ -1194,12 +1200,9 @@ vec4 textureArray_bicubic (texture2DArray tex, vec3 uv, vec2 texture_size)
 }
 #endif // USE_LIGHTMAP
 
-
-#if !defined(MODE_RENDER_PREPASS) && !defined(MODE_UNSHADED)
-
-#if defined(USE_VERTEX_LIGHTING) && (USE_VERTEX_LIGHTING == 1)
+#if (defined(USE_VERTEX_LIGHTING) && (USE_VERTEX_LIGHTING == 1)) || defined(USE_LIGHTMAP)
 #include "../sh_inc.glsl"
-#endif // USE_VERTEX_LIGHTING && (USE_VERTEX_LIGHTING == 1)
+#endif // (USE_VERTEX_LIGHTING && (USE_VERTEX_LIGHTING == 1)) || USE_LIGHTMAP
 
 #if !(defined(SPECULAR_DISABLED) || defined(SPECULAR_SCHLICK_GGX) || defined(SPECULAR_TOON))
 #define SPECULAR_SCHLICK_GGX  // Default to SPECULAR_SCHLICK_GGX.
@@ -1888,6 +1891,13 @@ void fragment_shader(
 
 	vec3 indirect_diffuse = vec3(0.0);
 	vec3 indirect_specular = vec3(0.0);  // Always defined, but never output when SPECULAR_DISABLED is defined, in which case anything modifying it is compiled out.
+	
+#ifdef USE_IRRADIANCE_MATCHING
+	float hi_irradiance = 0.0;
+#ifdef LIGHT_CLEARCOAT_USED
+	float cc_hi_irradiance = 0.0;
+#endif // LIGHT_CLEARCOAT_USED
+#endif // USE_IRRADIANCE_MATCHING
 
 #if !defined(AMBIENT_LIGHT_DISABLED) || defined(USE_VERTEX_LIGHTING)
 #ifdef BENT_NORMAL_MAP_USED
@@ -1915,8 +1925,20 @@ void fragment_shader(
 
 #endif // !AMBIENT_LIGHT_DISABLED || USE_VERTEX_LIGHTING
 
+
 #ifndef AMBIENT_LIGHT_DISABLED
 #ifndef SPECULAR_DISABLED
+
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT))
+	{
+		indirect_specular = scene_data.ambient_light_color_energy.rgb;
+#ifdef USE_IRRADIANCE_MATCHING
+		// Divide reflected irradiance out of radiance, will be multiplied back in if nothing better is available.
+		hi_irradiance = dot(indirect_specular, vec3(1.0/3.0));
+		indirect_specular *= IRR_MATCH_LAMBDA_N / (hi_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // USE_IRRADIANCE_MATCHING
+	}
+
 	// Get Sky Radiance //
 	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_REFLECTION_CUBEMAP))
 	{
@@ -1928,24 +1950,87 @@ void fragment_shader(
 
 		float ref_lod = vec3_to_oct_lod(dFdxCoarse(ref_vec), dFdyCoarse(ref_vec), scene_data_block.data.radiance_pixel_size);
 		vec2 ref_uv = vec3_to_oct_with_border(ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
-		vec3 indirect_sample_a = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, roughness_lod), ref_lod).rgb;
-		vec3 indirect_sample_b = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, roughness_lod + 1), ref_lod).rgb;
-		indirect_specular = mix(indirect_sample_a, indirect_sample_b, blend);
+		vec3 sky_sample_a = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, roughness_lod), ref_lod).rgb;
+		vec3 sky_sample_b = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, roughness_lod + 1), ref_lod).rgb;
+		vec3 sky_radiance = mix(sky_sample_a, sky_sample_b, blend);
 #else  // USE_RADIANCE_OCTMAP_ARRAY
 		float roughness_lod = sqrt(roughness) * MAX_ROUGHNESS_LOD;
 		vec2 ref_uv = vec3_to_oct_with_border(ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
-		indirect_specular = textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ref_uv, roughness_lod).rgb;
+		vec3 sky_radiance = textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ref_uv, roughness_lod).rgb;
 #endif // USE_RADIANCE_OCTMAP_ARRAY
 		
-		indirect_specular *= scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
+#ifdef USE_IRRADIANCE_MATCHING
+		// Divide reflected irradiance out of radiance.
+#ifdef USE_RADIANCE_OCTMAP_ARRAY
+		float lo_irradiance = dot(textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, MAX_ROUGHNESS_LOD), ref_lod).rgb, vec3(1.0/3.0));
+#else  // USE_RADIANCE_OCTMAP_ARRAY
+		float lo_irradiance = dot(textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ref_uv, MAX_ROUGHNESS_LOD).rgb, vec3(1.0/3.0));
+#endif // USE_RADIANCE_OCTMAP_ARRAY
+		sky_radiance *= IRR_MATCH_LAMBDA_N / (lo_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // USE_IRRADIANCE_MATCHING
+
+		sky_radiance *= scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
+		indirect_specular = mix(indirect_specular, sky_radiance, scene_data.ambient_color_sky_mix);
 	}
 
+#ifdef LIGHT_CLEARCOAT_USED
+	vec3 cc_radiance_vec = reflect(-view, geo_normal);  // Clearcoat layer uses geometric normal.
+	vec3 cc_indirect_specular = vec3(0.0);
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT))
+	{
+		cc_indirect_specular = scene_data.ambient_light_color_energy.rgb;
+#ifdef USE_IRRADIANCE_MATCHING
+		cc_hi_irradiance = dot(cc_indirect_specular, vec3(1.0/3.0));
+		cc_indirect_specular *= IRR_MATCH_LAMBDA_N / (hi_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // USE_IRRADIANCE_MATCHING
+	}
+
+	// Get Sky Radiance for Clearcoat //
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_REFLECTION_CUBEMAP))
+	{
+		vec3 cc_ref_vec = scene_data.radiance_inverse_xform * cc_radiance_vec;
+		
+		float roughness_lod = sqrt(clearcoat_roughness) * MAX_ROUGHNESS_LOD;
+#ifdef USE_RADIANCE_OCTMAP_ARRAY
+		float lod, blend;
+		blend = modf(roughness_lod, lod);
+
+		float cc_ref_lod = vec3_to_oct_lod(dFdxCoarse(cc_ref_vec), dFdyCoarse(cc_ref_vec), scene_data_block.data.radiance_pixel_size);
+		vec2 cc_ref_uv = vec3_to_oct_with_border(cc_ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
+		vec3 cc_sky_sample_a = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_ref_uv, lod), cc_ref_lod).rgb;
+		vec3 cc_sky_sample_b = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_ref_uv, lod + 1), cc_ref_lod).rgb;
+		vec3 cc_sky_radiance = mix(cc_sky_sample_a, cc_sky_sample_b, blend);
+#else  // USE_RADIANCE_OCTMAP_ARRAY
+		vec2 cc_ref_uv = vec3_to_oct_with_border(cc_ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
+		vec3 cc_sky_radiance = textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), cc_ref_uv, roughness_lod).rgb;
+#endif // USE_RADIANCE_OCTMAP_ARRAY
+
+#ifdef USE_IRRADIANCE_MATCHING
+		// Divide reflected irradiance out of radiance.
+#ifdef USE_RADIANCE_OCTMAP_ARRAY
+		float cc_lo_irradiance = dot(textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_ref_uv, MAX_ROUGHNESS_LOD), cc_ref_lod).rgb, vec3(1.0/3.0));
+#else  // USE_RADIANCE_OCTMAP_ARRAY
+		float cc_lo_irradiance = dot(textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), cc_ref_uv, MAX_ROUGHNESS_LOD).rgb, vec3(1.0/3.0));
+#endif // USE_RADIANCE_OCTMAP_ARRAY
+		cc_sky_radiance *= IRR_MATCH_LAMBDA_N / (cc_lo_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // USE_IRRADIANCE_MATCHING
+
+		cc_sky_radiance *= scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
+		cc_indirect_specular = mix(cc_indirect_specular, cc_sky_radiance, scene_data.ambient_color_sky_mix);
+	}
+#endif // LIGHT_CLEARCOAT_USED
+
+	// Blend custom radiance over sky radiance.
 #ifdef CUSTOM_RADIANCE_USED
 	indirect_specular = mix(indirect_specular, custom_radiance.rgb, custom_radiance.a);
+#ifdef LIGHT_CLEARCOAT_USED
+	cc_indirect_specular = mix(cc_indirect_specular, custom_radiance.rgb, custom_radiance.a);
+#endif // LIGHT_CLEARCOAT_USED
 #endif // CUSTOM_RADIANCE_USED
 #endif // !SPECULAR_DISABLED
 
-#ifndef USE_LIGHTMAP  // Lightmap overrides all other sources of irradiance.
+
+#ifndef USE_LIGHTMAP  // Lightmap overrides sky irradiance.
 	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT))
 	{
 		indirect_diffuse = scene_data.ambient_light_color_energy.rgb;
@@ -1955,259 +2040,299 @@ void fragment_shader(
 		{
 			vec3 ambient_dir = scene_data.radiance_inverse_xform * irradiance_vec;
 #ifdef USE_RADIANCE_OCTMAP_ARRAY
-			float ambient_lod = vec3_to_oct_lod(dFdxCoarse(ambient_dir), dFdyCoarse(ambient_dir), scene_data_block.data.radiance_pixel_size);
-			vec2 ambient_uv = vec3_to_oct_with_border(ambient_dir, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
-			vec3 cubemap_ambient = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ambient_uv, MAX_ROUGHNESS_LOD), ambient_lod).rgb;
+			float sky_lod = vec3_to_oct_lod(dFdxCoarse(ambient_dir), dFdyCoarse(ambient_dir), scene_data_block.data.radiance_pixel_size);
+			vec2 sky_uv = vec3_to_oct_with_border(ambient_dir, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
+			vec3 sky_irradiance = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(sky_uv, MAX_ROUGHNESS_LOD), sky_lod).rgb;
 #else  // USE_RADIANCE_OCTMAP_ARRAY
-			float roughness_lod = MAX_ROUGHNESS_LOD;
-			vec2 ambient_uv = vec3_to_oct_with_border(ambient_dir, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
-			vec3 cubemap_ambient = textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ambient_uv, roughness_lod).rgb;
+			vec2 sky_uv = vec3_to_oct_with_border(ambient_dir, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
+			vec3 sky_irradiance = textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), sky_uv, MAX_ROUGHNESS_LOD).rgb;
 #endif // USE_RADIANCE_OCTMAP_ARRAY
-			cubemap_ambient *= scene_data.IBL_exposure_normalization;
-			indirect_diffuse = mix(indirect_diffuse, cubemap_ambient * scene_data.ambient_light_color_energy.a, scene_data.ambient_color_sky_mix);
+
+			sky_irradiance *= scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
+			indirect_diffuse = mix(indirect_diffuse, sky_irradiance, scene_data.ambient_color_sky_mix);
 		}
 	}
 #endif // !USE_LIGHTMAP
 
+	// Blend custom irradiance over sky irradiance.
 #ifdef CUSTOM_IRRADIANCE_USED
 	indirect_diffuse = mix(indirect_diffuse, custom_irradiance.rgb, custom_irradiance.a);
 #endif // CUSTOM_IRRADIANCE_USED
 
 
-#ifdef LIGHT_CLEARCOAT_USED
-	vec3 cc_specular_light = vec3(0.0);
-	vec3 cc_ref_vec = vec3(0.0);
-
-	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_REFLECTION_CUBEMAP))
-	{
-		cc_ref_vec = reflect(-view, geo_normal);
-		vec3 cc_radiance_ref_vec = scene_data.radiance_inverse_xform * cc_ref_vec;
-		
-		float roughness_lod = sqrt(clearcoat_roughness) * MAX_ROUGHNESS_LOD;
-#ifdef USE_RADIANCE_OCTMAP_ARRAY
-		float lod, blend;
-		blend = modf(roughness_lod, lod);
-
-		float ref_lod = vec3_to_oct_lod(dFdxCoarse(cc_radiance_ref_vec), dFdyCoarse(cc_radiance_ref_vec), scene_data_block.data.radiance_pixel_size);
-		vec2 ref_uv = vec3_to_oct_with_border(cc_radiance_ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
-		vec3 clearcoat_sample_a = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, lod), ref_lod).rgb;
-		vec3 clearcoat_sample_b = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(ref_uv, lod + 1), ref_lod).rgb;
-		vec3 clearcoat_light = mix(clearcoat_sample_a, clearcoat_sample_b, blend);
-#else  // USE_RADIANCE_OCTMAP_ARRAY
-		vec2 ref_uv = vec3_to_oct_with_border(cc_radiance_ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
-		vec3 clearcoat_light = textureLod(sampler2D(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), ref_uv, roughness_lod).rgb;
-#endif // USE_RADIANCE_OCTMAP_ARRAY
-
-		cc_specular_light += clearcoat_light * scene_data.IBL_exposure_normalization * scene_data.ambient_light_color_energy.a;
-	}
-#endif // LIGHT_CLEARCOAT_USED
-
-
+	// Get Baked Lightmap Data //
 #ifdef USE_LIGHTMAP
-
-	// Process Lightmap //
 	if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP_CAPTURE))
 	{
 		// Lightmap Probe //
 		const uint index = instances.data[instance_index].gi_offset;
-
+		const LightmapCapture lm_probe = lightmap_captures.data[index];
+		
 		vec3 world_normal = mat3(inv_view_matrix) * irradiance_vec;
+		vec3 probe_diffuse = sh_l2_evaluate(lm_probe.sh, world_normal) * scene_data.IBL_exposure_normalization;
+		indirect_diffuse += probe_diffuse;
 
-		// Coefficients for evaluating irradiance data from SH probes.
-		const float c[5] = float[](
-				0.886227,  // l0 				sqrt(1.0/(4.0*PI)) 	* PI
-				1.023327,  // l1 				sqrt(3.0/(4.0*PI)) 	* PI*2.0/3.0
-				0.858086,  // l2n2, l2n1, l2p1	sqrt(15.0/(4.0*PI)) * PI*1.0/4.0
-				0.247708,  // l20 				sqrt(5.0/(16.0*PI)) * PI*1.0/4.0
-				0.429043   // l2p2 				sqrt(15.0/(16.0*PI))* PI*1.0/4.0
-		);
-		indirect_diffuse += (
-				c[0] * lightmap_captures.data[index].sh[0].rgb +
-				c[1] * lightmap_captures.data[index].sh[1].rgb * world_normal.y +
-				c[1] * lightmap_captures.data[index].sh[2].rgb * world_normal.z +
-				c[1] * lightmap_captures.data[index].sh[3].rgb * world_normal.x +
-				c[2] * lightmap_captures.data[index].sh[4].rgb * world_normal.x * world_normal.y +
-				c[2] * lightmap_captures.data[index].sh[5].rgb * world_normal.y * world_normal.z +
-				c[3] * lightmap_captures.data[index].sh[6].rgb * (3.0 * world_normal.z * world_normal.z - 1.0) +
-				c[2] * lightmap_captures.data[index].sh[7].rgb * world_normal.x * world_normal.z +
-				c[4] * lightmap_captures.data[index].sh[8].rgb * (world_normal.x * world_normal.x - world_normal.y * world_normal.y)
-		) * scene_data.IBL_exposure_normalization;
+#ifndef SPECULAR_DISABLED
+		vec3 world_reflect = mat3(inv_view_matrix) * radiance_vec;
+		vec3 probe_specular = sh_l2_evaluate(lm_probe.sh, world_reflect) * scene_data.IBL_exposure_normalization * (1.0 / M_PI);
+#ifdef LIGHT_CLEARCOAT_USED
+		vec3 cc_world_reflect = mat3(inv_view_matrix) * cc_radiance_vec;
+		vec3 cc_probe_specular = sh_l2_evaluate(lm_probe.sh, cc_world_reflect) * scene_data.IBL_exposure_normalization * (1.0 / M_PI);
+#endif // LIGHT_CLEARCOAT_USED
 
+#ifdef USE_IRRADIANCE_MATCHING
+		// Divide reflected irradiance out of radiance, will be multiplied back in if nothing better is available.
+		hi_irradiance = dot(probe_specular, vec3(1.0/3.0));
+		probe_specular *= IRR_MATCH_LAMBDA_N / (hi_irradiance + IRR_MATCH_LAMBDA_D);
+#ifdef LIGHT_CLEARCOAT_USED
+		cc_hi_irradiance = dot(cc_probe_specular, vec3(1.0/3.0));
+		cc_probe_specular *= IRR_MATCH_LAMBDA_N / (cc_hi_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // LIGHT_CLEARCOAT_USED
+#endif // USE_IRRADIANCE_MATCHING
+
+		if (!bool(scene_data.flags & SCENE_DATA_FLAGS_USE_REFLECTION_CUBEMAP))
+		{
+			indirect_specular += probe_specular;
+#ifdef LIGHT_CLEARCOAT_USED
+			cc_indirect_specular += cc_probe_specular;
+#endif // LIGHT_CLEARCOAT_USED
+		}
+#endif // !SPECULAR_DISABLED
 	}
 	else if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP))
 	{
 		// Lightmap Texture //
-		const bool uses_sh = bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_SH_LIGHTMAP);
-		const uint ofs = instances.data[instance_index].gi_offset & 0xFFFF;
+		const uint idx = instances.data[instance_index].gi_offset & 0xFFFF;
 		const uint slice = instances.data[instance_index].gi_offset >> 16;
 
-		vec3 uvw;
-		uvw.xy = uv2 * instances.data[instance_index].lightmap_uv_scale.zw + instances.data[instance_index].lightmap_uv_scale.xy;
-		uvw.z = float(slice);
+		const Lightmap lm_data = lightmaps.data[idx];
 
-		if (uses_sh)
+		vec3 uvw = vec3(
+				uv2 * instances.data[instance_index].lightmap_uv_scale.zw + instances.data[instance_index].lightmap_uv_scale.xy,
+				float(slice)
+		);
+		vec3 lm_diffuse = vec3(0.0);
+#ifndef SPECULAR_DISABLED
+		vec3 lm_specular = vec3(0.0);
+#ifdef LIGHT_CLEARCOAT_USED
+		vec3 cc_lm_specular = vec3(0.0);
+#endif // LIGHT_CLEARCOAT_USED
+#endif // !SPECULAR_DISABLED
+		if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_SH_LIGHTMAP))
 		{
-			uvw.z *= 4.0;  // SH textures use 4 times more data.
+			// Directional (L1 SH) Lightmap Texture //
+			uvw.z *= 4.0;  // SH textures use 4 times more data, so stride accordingly.
 			vec3 lm_light_l0, lm_light_l1n1, lm_light_l1_0, lm_light_l1p1;
 			if (sc_use_lightmap_bicubic_filter())
 			{
-				lm_light_l0 = textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size).rgb;
-				lm_light_l1n1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1_0 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1p1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
+				lm_light_l0   = textureArray_bicubic(lightmap_textures[idx], uvw + vec3(0.0, 0.0, 0.0), lm_data.light_texture_size).rgb;
+				lm_light_l1n1 = textureArray_bicubic(lightmap_textures[idx], uvw + vec3(0.0, 0.0, 1.0), lm_data.light_texture_size).rgb * vec3(2.0) - vec3(1.0);
+				lm_light_l1_0 = textureArray_bicubic(lightmap_textures[idx], uvw + vec3(0.0, 0.0, 2.0), lm_data.light_texture_size).rgb * vec3(2.0) - vec3(1.0);
+				lm_light_l1p1 = textureArray_bicubic(lightmap_textures[idx], uvw + vec3(0.0, 0.0, 3.0), lm_data.light_texture_size).rgb * vec3(2.0) - vec3(1.0);
 			}
 			else
 			{
-				lm_light_l0 = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
-				lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
+				lm_light_l0   = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
+				lm_light_l1n1 = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb * vec3(2.0) - vec3(1.0);
+				lm_light_l1_0 = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb * vec3(2.0) - vec3(1.0);
+				lm_light_l1p1 = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb * vec3(2.0) - vec3(1.0);
 			}
 
-			vec3 n = normalize(lightmaps.data[ofs].normal_xform * irradiance_vec);
-			const float en = lightmaps.data[ofs].exposure_normalization;
-
-			indirect_diffuse += lm_light_l0 * en;
-			indirect_diffuse += lm_light_l1n1 * n.y * (lm_light_l0 * en * 4.0);
-			indirect_diffuse += lm_light_l1_0 * n.z * (lm_light_l0 * en * 4.0);
-			indirect_diffuse += lm_light_l1p1 * n.x * (lm_light_l0 * en * 4.0);
+			vec3 n = normalize(lm_data.normal_xform * irradiance_vec) * 4.0;
+			lm_diffuse  = lm_light_l0;
+			lm_diffuse += lm_light_l1p1 * n.x * lm_light_l0;
+			lm_diffuse += lm_light_l1n1 * n.y * lm_light_l0;
+			lm_diffuse += lm_light_l1_0 * n.z * lm_light_l0;
+			lm_diffuse = max(vec3(0.0), lm_diffuse) * lm_data.exposure_normalization;
+#ifndef SPECULAR_DISABLED
+			vec3 r = normalize(lm_data.normal_xform * radiance_vec) * 4.0;
+			lm_specular  = lm_light_l0;
+			lm_specular += lm_light_l1p1 * r.x * lm_light_l0;
+			lm_specular += lm_light_l1n1 * r.y * lm_light_l0;
+			lm_specular += lm_light_l1_0 * r.z * lm_light_l0;
+			lm_specular = max(vec3(0.0), lm_specular) * lm_data.exposure_normalization * (1.0 / M_PI);
+#ifdef LIGHT_CLEARCOAT_USED
+			vec3 cc_r = normalize(lm_data.normal_xform * cc_radiance_vec) * 4.0;
+			cc_lm_specular  = lm_light_l0;
+			cc_lm_specular += lm_light_l1p1 * cc_r.x * lm_light_l0;
+			cc_lm_specular += lm_light_l1n1 * cc_r.y * lm_light_l0;
+			cc_lm_specular += lm_light_l1_0 * cc_r.z * lm_light_l0;
+			cc_lm_specular = max(vec3(0.0), cc_lm_specular) * lm_data.exposure_normalization * (1.0 / M_PI);
+#endif // LIGHT_CLEARCOAT_USED
+#ifdef USE_IRRADIANCE_MATCHING
+			// Divide reflected irradiance out of radiance, will be multiplied back in if nothing better is available.
+			hi_irradiance = dot(lm_specular, vec3(1.0/3.0));
+			lm_specular *= IRR_MATCH_LAMBDA_N / (hi_irradiance + IRR_MATCH_LAMBDA_D);
+#ifdef LIGHT_CLEARCOAT_USED
+			cc_hi_irradiance = dot(cc_lm_specular, vec3(1.0/3.0));
+			cc_lm_specular *= IRR_MATCH_LAMBDA_N / (cc_hi_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // LIGHT_CLEARCOAT_USED
+#endif // USE_IRRADIANCE_MATCHING
+#endif // !SPECULAR_DISABLED
 		}
 		else
 		{
+			// Standard Lightmap Texture //
 			if (sc_use_lightmap_bicubic_filter())
-				indirect_diffuse += textureArray_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization;
+				lm_diffuse = textureArray_bicubic(lightmap_textures[idx], uvw, lm_data.light_texture_size).rgb * lm_data.exposure_normalization;
 			else
-				indirect_diffuse += textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lightmaps.data[ofs].exposure_normalization;
+				lm_diffuse = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lm_data.exposure_normalization;
+#ifndef SPECULAR_DISABLED
+			lm_specular = lm_diffuse * (1.0 / M_PI);
+#ifdef USE_IRRADIANCE_MATCHING
+			// Divide reflected irradiance out of radiance, will be multiplied back in if nothing better is available.
+			hi_irradiance = dot(lm_specular, vec3(1.0/3.0));
+			lm_specular *= IRR_MATCH_LAMBDA_N / (hi_irradiance + IRR_MATCH_LAMBDA_D);
+#ifdef LIGHT_CLEARCOAT_USED
+			// No directional information, so clearcoat specular is the same as base specular.
+			cc_hi_irradiance = hi_irradiance;
+			cc_lm_specular = lm_specular;
+#endif // LIGHT_CLEARCOAT_USED
+#endif // USE_IRRADIANCE_MATCHING
+#endif // !SPECULAR_DISABLED
 		}
+
+		indirect_diffuse += lm_diffuse;
+#ifndef SPECULAR_DISABLED
+		if (!bool(scene_data.flags & SCENE_DATA_FLAGS_USE_REFLECTION_CUBEMAP))
+		{
+			indirect_specular += lm_specular;
+#ifdef LIGHT_CLEARCOAT_USED
+			cc_indirect_specular += cc_lm_specular;
+#endif // LIGHT_CLEARCOAT_USED
+		}
+#endif // !SPECULAR_DISABLED
 	}
+
 #else  // USE_LIGHTMAP
 
-	// Process SDFGI //
-	if (sc_use_forward_gi() && bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_SDFGI))
+	// Get GI Result in Forward Pass //
+	if (sc_use_forward_gi())
 	{
-		// Make vertex orientation the world one, but still align to camera.
-		vec3 cam_pos = mat3(inv_view_matrix) * vertex;
-		vec3 cam_normal = mat3(inv_view_matrix) * irradiance_vec;
-		vec3 cam_reflection = mat3(inv_view_matrix) * radiance_vec;
-
-		// Apply cell Y-density.
-		cam_pos.y *= sdfgi.y_mult;
-		cam_normal.y *= sdfgi.y_mult;
-		cam_reflection.y *= sdfgi.y_mult;
-		cam_normal = normalize(cam_normal);
-		cam_reflection = normalize(cam_reflection);
-
-		vec4 light_accum = vec4(0.0);
-		float weight_accum = 0.0;
-
-		vec4 light_blend_accum = vec4(0.0);
-		float weight_blend_accum = 0.0;
-
-		float blend = 0.0;
-
-		// Compute helper constants.
-		uint cascade = 0xFFFFFFFF;
-		vec3 cascade_pos, cascade_normal;
-		for (uint i = 0; i < sdfgi.max_cascades; i++)
+		// Get SDFGI //
+		if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_SDFGI))
 		{
-			cascade_pos = (cam_pos - sdfgi.cascades[i].position) * sdfgi.cascades[i].to_probe;
-			if (any(lessThan(cascade_pos, vec3(0.0))) || any(greaterThanEqual(cascade_pos, sdfgi.cascade_probe_size)))
-				continue;  // Skip cascade.
-			cascade = i;
-			break;
-		}
+			// Make vertex orientation the world one, but still align to camera.
+			vec3 cam_pos = mat3(inv_view_matrix) * vertex;
+			vec3 cam_normal = mat3(inv_view_matrix) * irradiance_vec;
+			vec3 cam_reflection = mat3(inv_view_matrix) * radiance_vec;
 
-		if (cascade < SDFGI_MAX_CASCADES)
-		{
+			// Apply cell Y-density.
+			cam_pos.y *= sdfgi.y_mult;
+			cam_normal.y *= sdfgi.y_mult;
+			cam_reflection.y *= sdfgi.y_mult;
+			cam_normal = normalize(cam_normal);
+			cam_reflection = normalize(cam_reflection);
+
+			vec4 light_accum = vec4(0.0);
+			float weight_accum = 0.0;
+
+			vec4 light_blend_accum = vec4(0.0);
+			float weight_blend_accum = 0.0;
+
+			float blend = 0.0;
+
+			// Compute helper constants.
+			uint cascade = 0xFFFFFFFF;
+			vec3 cascade_pos, cascade_normal;
+			for (uint i = 0; i < sdfgi.max_cascades; i++)
+			{
+				cascade_pos = (cam_pos - sdfgi.cascades[i].position) * sdfgi.cascades[i].to_probe;
+				if (any(lessThan(cascade_pos, vec3(0.0))) || any(greaterThanEqual(cascade_pos, sdfgi.cascade_probe_size)))
+					continue;  // Skip cascade.
+				cascade = i;
+				break;
+			}
+
+			if (cascade < SDFGI_MAX_CASCADES)
+			{
 #ifndef SPECULAR_DISABLED
 #define use_specular  true
 #else
 #define use_specular  false
 #endif // !SPECULAR_DISABLED
-			float blend;
-			vec3 diffuse, specular;
-			sdfgi_process(cascade, cascade_pos, cam_pos, cam_normal, cam_reflection, use_specular, roughness, diffuse, specular, blend);
+				float blend;
+				vec3 diffuse, specular;
+				sdfgi_process(cascade, cascade_pos, cam_pos, cam_normal, cam_reflection, use_specular, roughness, diffuse, specular, blend);
 
-			// Blend with next cascade, provided this isn't the last.
-			if ((cascade != sdfgi.max_cascades - 1) && (blend > 0.0))
-			{
-				float blend2;
-				vec3 diffuse2, specular2;
-				cascade_pos = (cam_pos - sdfgi.cascades[cascade + 1].position) * sdfgi.cascades[cascade + 1].to_probe;
-				sdfgi_process(cascade + 1, cascade_pos, cam_pos, cam_normal, cam_reflection, use_specular, roughness, diffuse2, specular2, blend2);
-				diffuse = mix(diffuse, diffuse2, blend);
+				// Blend with next cascade, provided this isn't the last.
+				if ((cascade != sdfgi.max_cascades - 1) && (blend > 0.0))
+				{
+					float blend2;
+					vec3 diffuse2, specular2;
+					cascade_pos = (cam_pos - sdfgi.cascades[cascade + 1].position) * sdfgi.cascades[cascade + 1].to_probe;
+					sdfgi_process(cascade + 1, cascade_pos, cam_pos, cam_normal, cam_reflection, use_specular, roughness, diffuse2, specular2, blend2);
+					diffuse = mix(diffuse, diffuse2, blend);
 #ifndef SPECULAR_DISABLED
-				specular = mix(specular, specular2, blend);
+					specular = mix(specular, specular2, blend);
 #endif // !SPECULAR_DISABLED
-				blend = blend2;
-			}
-			indirect_diffuse = mix(diffuse, indirect_diffuse, blend);
+					blend = blend2;
+				}
+				indirect_diffuse = mix(diffuse, indirect_diffuse, blend);
 #ifndef SPECULAR_DISABLED
-			indirect_specular = mix(specular, indirect_specular, blend);
+				indirect_specular = mix(specular, indirect_specular, blend);
 #endif // !SPECULAR_DISABLED
 #undef use_specular 
+			}
+		}
+
+		// Get Voxel GI //
+		if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_VOXEL_GI))
+		{
+			// Make vertex orientation the world one, but still align to camera.
+			vec3 cam_pos = mat3(inv_view_matrix) * vertex;
+			vec3 cam_normal = mat3(inv_view_matrix) * irradiance_vec;
+			vec3 ref_vec = mat3(inv_view_matrix) * radiance_vec;
+
+			// Construct arbitrary TBN basis.
+			vec3 v0 = abs(cam_normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+			vec3 tangent = normalize(cross(v0, cam_normal));
+			vec3 bitangent = cross(tangent, cam_normal);
+			mat3 normal_mat = mat3(tangent, bitangent, cam_normal);
+
+			vec4 amb_accum = vec4(0.0), spec_accum = vec4(0.0);
+
+			uint index1 = instances.data[instance_index].gi_offset & 0xFFFF;
+			voxel_gi_compute(index1, cam_pos, cam_normal, ref_vec, normal_mat, roughness * roughness, indirect_diffuse, indirect_specular, spec_accum, amb_accum);
+
+			uint index2 = instances.data[instance_index].gi_offset >> 16;
+			if (index2 != 0xFFFF)
+				voxel_gi_compute(index2, cam_pos, cam_normal, ref_vec, normal_mat, roughness * roughness, indirect_diffuse, indirect_specular, spec_accum, amb_accum);
+
+			if (amb_accum.a > 0.0)
+				amb_accum.rgb /= amb_accum.a;
+			indirect_diffuse = amb_accum.rgb;
+
+#ifndef SPECULAR_DISABLED
+			if (spec_accum.a > 0.0)
+				spec_accum.rgb /= spec_accum.a;
+			indirect_specular = spec_accum.rgb;
+#endif // !SPECULAR_DISABLED
+		}
+	}
+	else
+	{
+		// Get Deferred GI Result from Buffers //
+		if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_GI_BUFFERS))
+		{
+#ifdef USE_MULTIVIEW
+			vec4 buffer_ambient = textureLod(sampler2DArray(ambient_buffer, SAMPLER_LINEAR_CLAMP), vec3(buffer_uv, ViewIndex), 0.0);
+#else
+			vec4 buffer_ambient = textureLod(sampler2D(ambient_buffer, SAMPLER_LINEAR_CLAMP), buffer_uv, 0.0);
+#endif // USE_MULTIVIEW
+			indirect_diffuse = mix(indirect_diffuse, buffer_ambient.rgb, buffer_ambient.a);
+
+#ifndef SPECULAR_DISABLED
+#ifdef USE_MULTIVIEW
+			vec4 buffer_reflection = textureLod(sampler2DArray(reflection_buffer, SAMPLER_LINEAR_CLAMP), vec3(buffer_uv, ViewIndex), 0.0);
+#else
+			vec4 buffer_reflection = textureLod(sampler2D(reflection_buffer, SAMPLER_LINEAR_CLAMP), buffer_uv, 0.0);
+#endif // USE_MULTIVIEW
+			indirect_specular = mix(indirect_specular, buffer_reflection.rgb, buffer_reflection.a);
+#endif // !SPECULAR_DISABLED 
 		}
 	}
 
-	// Process Voxel GI //
-	if (sc_use_forward_gi() && bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_VOXEL_GI))
-	{
-		// Make vertex orientation the world one, but still align to camera.
-		vec3 cam_pos = mat3(inv_view_matrix) * vertex;
-		vec3 cam_normal = mat3(inv_view_matrix) * irradiance_vec;
-		vec3 ref_vec = mat3(inv_view_matrix) * radiance_vec;
-
-		// Construct arbitrary TBN basis.
-		vec3 v0 = abs(cam_normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
-		vec3 tangent = normalize(cross(v0, cam_normal));
-		vec3 bitangent = cross(tangent, cam_normal);
-		mat3 normal_mat = mat3(tangent, bitangent, cam_normal);
-
-		vec4 amb_accum = vec4(0.0);
-		vec4 spec_accum = vec4(0.0);
-
-		uint index1 = instances.data[instance_index].gi_offset & 0xFFFF;
-		voxel_gi_compute(index1, cam_pos, cam_normal, ref_vec, normal_mat, roughness * roughness, indirect_diffuse, indirect_specular, spec_accum, amb_accum);
-
-		uint index2 = instances.data[instance_index].gi_offset >> 16;
-		if (index2 != 0xFFFF)
-			voxel_gi_compute(index2, cam_pos, cam_normal, ref_vec, normal_mat, roughness * roughness, indirect_diffuse, indirect_specular, spec_accum, amb_accum);
-
-		if (amb_accum.a > 0.0)
-			amb_accum.rgb /= amb_accum.a;
-		indirect_diffuse = amb_accum.rgb;
-
-#ifndef SPECULAR_DISABLED
-		if (spec_accum.a > 0.0)
-			spec_accum.rgb /= spec_accum.a;
-		indirect_specular = spec_accum.rgb;
-#endif // !SPECULAR_DISABLED
-
-	}
-#endif // USE_LIGHTMAP
-
-
-#ifndef USE_LIGHTMAP
-
-	// Get GI Buffers //
-	if (!sc_use_forward_gi() && bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_GI_BUFFERS))
-	{
-#ifdef USE_MULTIVIEW
-		vec4 buffer_ambient = textureLod(sampler2DArray(ambient_buffer, SAMPLER_LINEAR_CLAMP), vec3(buffer_uv, ViewIndex), 0.0);
-#else
-		vec4 buffer_ambient = textureLod(sampler2D(ambient_buffer, SAMPLER_LINEAR_CLAMP), buffer_uv, 0.0);
-#endif // USE_MULTIVIEW
-		indirect_diffuse = mix(indirect_diffuse, buffer_ambient.rgb, buffer_ambient.a);
-
-#ifndef SPECULAR_DISABLED
-#ifdef USE_MULTIVIEW
-		vec4 buffer_reflection = textureLod(sampler2DArray(reflection_buffer, SAMPLER_LINEAR_CLAMP), vec3(buffer_uv, ViewIndex), 0.0);
-#else
-		vec4 buffer_reflection = textureLod(sampler2D(reflection_buffer, SAMPLER_LINEAR_CLAMP), buffer_uv, 0.0);
-#endif // USE_MULTIVIEW
-		indirect_specular = mix(indirect_specular, buffer_reflection.rgb, buffer_reflection.a);
-#endif // !SPECULAR_DISABLED 
-	}
 #endif // !USE_LIGHTMAP
 
 
@@ -2224,7 +2349,7 @@ void fragment_shader(
 		cc_reflection_accum.a = 1.0;
 #endif // LIGHT_CLEARCOAT_USED
 #endif // SPECULAR_DISABLED
-		
+
 		const uint cluster_reflection_offset = cluster_offset + implementation_data.cluster_type_size * 4;
 
 		uint item_min, item_max, item_from, item_to;
@@ -2247,7 +2372,7 @@ void fragment_shader(
 				if (((1u << bit) & mask) == 0)
 					continue;
 
-				uint reflection_index = 32 * i + bit;
+				const uint reflection_index = 32 * i + bit;
 
 				if (!bool(reflections.data[reflection_index].mask & instances.data[instance_index].layer_mask))
 					continue;  // Not masked, skip.
@@ -2261,11 +2386,12 @@ void fragment_shader(
 #endif // LIGHT_CLEARCOAT_USED
 
 				reflection_process(
-						reflection_index, vertex, radiance_vec, normal, roughness, indirect_diffuse,
+						reflection_index, vertex, radiance_vec, normal, roughness,
 #ifdef LIGHT_CLEARCOAT_USED
-						cc_ref_vec, clearcoat_roughness, cc_reflection_accum,
+						cc_radiance_vec, clearcoat_roughness, cc_reflection_accum,
 #endif // LIGHT_CLEARCOAT_USED
-						ambient_accum, reflection_accum);
+						ambient_accum, reflection_accum
+				);
 			}
 		}
 
@@ -2278,7 +2404,7 @@ void fragment_shader(
 
 #ifdef LIGHT_CLEARCOAT_USED
 		if (cc_reflection_accum.a < 1.0)
-			cc_reflection_accum.rgb += cc_specular_light * (1.0 - cc_reflection_accum.a);
+			cc_reflection_accum.rgb += cc_indirect_specular * (1.0 - cc_reflection_accum.a);
 #endif // LIGHT_CLEARCOAT_USED
 
 		if (reflection_accum.a > 0.0)
@@ -2286,7 +2412,7 @@ void fragment_shader(
 
 #ifdef LIGHT_CLEARCOAT_USED
 		if (cc_reflection_accum.a > 0.0)
-			cc_specular_light = cc_reflection_accum.rgb;
+			cc_indirect_specular = cc_reflection_accum.rgb;
 #endif // LIGHT_CLEARCOAT_USED
 #endif // !SPECULAR_DISABLED
 
@@ -2299,10 +2425,19 @@ void fragment_shader(
 
 	// Finalize Indirect Light //
 	{
-		indirect_diffuse *= ao;  // SSAO is applied to diffuse before SSIL.
-		
-#ifndef SPECULAR_DISABLED
-#ifdef BENT_NORMAL_MAP_USED
+		// Apply Irradiance Matching (aka. Cubemap Normalization) //
+		// Low-spatial-frequency probe irradiance was previously divided out of indirect specular,
+		// now multiply in high-spatial-frequency irradiance derived from lightmap data.
+#ifdef USE_IRRADIANCE_MATCHING
+		indirect_specular *= hi_irradiance * M_PI;
+#ifdef LIGHT_CLEARCOAT_USED
+		cc_indirect_specular *= cc_hi_irradiance * M_PI;
+#endif // LIGHT_CLEARCOAT_USED
+#endif // USE_IRRADIANCE_MATCHING
+
+
+		// Apply Bent-Normal Specular Occlusion //
+#if !defined(SPECULAR_DISABLED) && defined(BENT_NORMAL_MAP_USED)
 		// Apply cone to cone intersection with cosine weighted assumption:
 		// https://blog.selfshadow.com/publications/s2016-shading-course/activision/s2016_pbs_activision_occlusion.pdf
 		float cos_a_v = sqrt(1.0 - ao);
@@ -2338,18 +2473,13 @@ void fragment_shader(
 
 		float specular_occlusion = area / (M_TAU * (1.0 - cos_a_s));
 		indirect_specular *= specular_occlusion;
-#endif  // BENT_NORMAL_MAP_USED
-#ifndef SPECULAR_OCCLUSION_DISABLED
-		float specular_occlusion = (indirect_diffuse.r * 0.3 + indirect_diffuse.g * 0.59 + indirect_diffuse.b * 0.11) * 2.0; // Luminance of ambient light.
-		specular_occlusion = min(specular_occlusion * 4.0, 1.0); // This multiplication preserves speculars on bright areas.
+#ifdef LIGHT_CLEARCOAT_USED
+		cc_indirect_specular *= specular_occlusion;
+#endif // LIGHT_CLEARCOAT_USED
+#endif  // !SPECULAR_DISABLED && BENT_NORMAL_MAP_USED
 
-		float reflective_f = (1.0 - roughness) * metallic;
-		// 10.0 is a magic number, it gives the intended effect in most scenarios.
-		// Low enough for occlusion, high enough for reaction to lights and shadows.
-		specular_occlusion = max(min(reflective_f * specular_occlusion * 10.0, 1.0), specular_occlusion);
-		indirect_specular *= specular_occlusion;
-#endif // !SPECULAR_OCCLUSION_DISABLED
-#endif // !SPECULAR_DISABLED
+		indirect_diffuse *= ao;  // SSAO is applied to indirect diffuse _before_ SSIL.
+
 
 		// Integrate SSIL //
 		if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_SSIL))
@@ -2362,6 +2492,7 @@ void fragment_shader(
 			indirect_diffuse *= 1.0 - ssil.a;
 			indirect_diffuse += ssil.rgb;
 		}
+
 
 		// Integrate SSR //
 #ifndef SPECULAR_DISABLED
@@ -2465,7 +2596,7 @@ void fragment_shader(
 		indirect_specular *= cc_attenuation;
 
 		// Clearcoat layer can just use Fresnel rather than the full BRDF.
-		indirect_specular += cc_specular_light * cc_F * ao;
+		indirect_specular += cc_indirect_specular * cc_F * ao;
 #endif // LIGHT_CLEARCOAT_USED
 #endif // SPECULAR_TOON
 	}
@@ -2562,8 +2693,8 @@ void fragment_shader(
 		uint shadowmask_mode = LIGHTMAP_SHADOWMASK_MODE_NONE;
 		if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP))
 		{
-			const uint ofs = instances.data[instance_index].gi_offset & 0xFFFF;
-			shadowmask_mode = lightmaps.data[ofs].flags;
+			const uint idx = instances.data[instance_index].gi_offset & 0xFFFF;
+			shadowmask_mode = lightmaps.data[idx].flags;
 
 			if (shadowmask_mode != LIGHTMAP_SHADOWMASK_MODE_NONE)
 			{
@@ -2572,9 +2703,9 @@ void fragment_shader(
 				const vec3 uvw = vec3(scaled_uv, float(slice));
 
 				if (sc_use_lightmap_bicubic_filter())
-					shadowmask = textureArray_bicubic(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size).x;
+					shadowmask = textureArray_bicubic(lightmap_textures[MAX_LIGHTMAP_TEXTURES + idx], uvw, lightmaps.data[idx].light_texture_size).x;
 				else
-					shadowmask = textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).x;
+					shadowmask = textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES + idx], SAMPLER_LINEAR_CLAMP), uvw, 0.0).x;
 			}
 		}
 

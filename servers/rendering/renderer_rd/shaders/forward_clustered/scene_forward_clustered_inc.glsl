@@ -8,6 +8,10 @@
 #define MIN_NDOTV				0.001
 #define MIN_NDOTH				0.0001
 
+// Numerator and denominator for irradiance matching.
+#define IRR_MATCH_LAMBDA_D		0.001
+#define IRR_MATCH_LAMBDA_N		(1.0 + IRR_MATCH_LAMBDA_D)
+
 #define MAX_VOXEL_GI_INSTANCES	8
 #define MAX_VIEWS				2
 

@@ -1524,20 +1524,24 @@ void light_process_area (
 }
 
 
-void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal, half roughness, hvec3 ambient_light,
+void reflection_process(
+		uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal, half roughness,
 #ifdef LIGHT_CLEARCOAT_USED
-		hvec3 cc_ref_vec, half cc_roughness, inout hvec4 cc_reflection_accum,
-#endif
-		inout hvec4 ambient_accum, inout hvec4 reflection_accum) {
+		hvec3 cc_ref_vec, half cc_roughness,
+		inout hvec4 cc_reflection_accum,
+#endif // LIGHT_CLEARCOAT_USED
+		inout hvec4 ambient_accum, inout hvec4 reflection_accum
+	)
+{
 	vec3 box_extents = reflections.data[ref_index].box_extents;
 	vec3 local_pos = (reflections.data[ref_index].local_matrix * vec4(vertex, 1.0)).xyz;
 
-	if (any(greaterThan(abs(local_pos), box_extents))) { //out of the reflection box
-		return;
-	}
+	if (any(greaterThan(abs(local_pos), box_extents)))
+		return;  // Out of the reflection box, skip.
 
 	half blend = half(1.0);
-	if (reflections.data[ref_index].blend_distance != 0.0) {
+	if (reflections.data[ref_index].blend_distance != 0.0)
+	{
 		vec3 axis_blend_distance = min(vec3(reflections.data[ref_index].blend_distance), box_extents);
 		vec3 blend_axes_highp = abs(local_pos) - box_extents + axis_blend_distance;
 		hvec3 blend_axes = hvec3(blend_axes_highp / axis_blend_distance);
@@ -1546,15 +1550,16 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 	}
 
 	vec2 border_size = scene_data_block.data.reflection_atlas_border_size;
-	if (reflections.data[ref_index].intensity > 0.0 && reflection_accum.a < half(1.0)) { // compute reflection
-
+	if (reflections.data[ref_index].intensity > 0.0 && reflection_accum.a < half(1.0))
+	{
 		vec3 local_ref_vec = (reflections.data[ref_index].local_matrix * vec4(ref_vec, 0.0)).xyz;
 
-		if (reflections.data[ref_index].box_project) { //box project
-
+		// Box Projection //
+		if (reflections.data[ref_index].box_project)
+		{
 			vec3 nrdir = normalize(local_ref_vec);
-			vec3 rbmax = (box_extents - local_pos) / nrdir;
-			vec3 rbmin = (-box_extents - local_pos) / nrdir;
+			vec3 rbmax = (-local_pos + box_extents) / nrdir;
+			vec3 rbmin = (-local_pos - box_extents) / nrdir;
 
 			vec3 rbminmax = mix(rbmin, rbmax, greaterThan(nrdir, vec3(0.0, 0.0, 0.0)));
 
@@ -1563,30 +1568,37 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 			local_ref_vec = posonbox - reflections.data[ref_index].box_offset;
 		}
 
-		hvec4 reflection;
+		vec4 reflection;
 		half reflection_blend = max(half(0.0), blend - reflection_accum.a);
 
 		float roughness_lod = sqrt(roughness) * MAX_ROUGHNESS_LOD;
 		vec2 reflection_uv = vec3_to_oct_with_border(local_ref_vec, border_size);
-		reflection.rgb = hvec3(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(reflection_uv, reflections.data[ref_index].index), roughness_lod).rgb) * REFLECTION_MULTIPLIER;
-		reflection.rgb *= half(reflections.data[ref_index].exposure_normalization);
-		reflection.a = reflection_blend;
+		reflection.rgb = textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(reflection_uv, reflections.data[ref_index].index), roughness_lod).rgb;
 
-		reflection.rgb *= half(reflections.data[ref_index].intensity);
+#ifdef USE_IRRADIANCE_MATCHING
+		// Divide reflected irradiance out of radiance.
+		float lo_irradiance = dot(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(reflection_uv, reflections.data[ref_index].index), MAX_ROUGHNESS_LOD).rgb, vec3(1.0/3.0));
+		reflection.rgb *= IRR_MATCH_LAMBDA_N / (lo_irradiance+ IRR_MATCH_LAMBDA_D);
+#endif // USE_IRRADIANCE_MATCHING
+		
+		reflection.rgb *= reflections.data[ref_index].exposure_normalization * reflections.data[ref_index].intensity * REFLECTION_MULTIPLIER;
+		reflection.a = reflection_blend;
 		reflection.rgb *= reflection.a;
 
 		reflection_accum += reflection;
 	}
 
 #ifdef LIGHT_CLEARCOAT_USED
-	if (reflections.data[ref_index].intensity > 0.0 && cc_reflection_accum.a < half(1.0)) { // compute clearcoat reflection
+	if (reflections.data[ref_index].intensity > 0.0 && cc_reflection_accum.a < half(1.0))
+	{
 		vec3 local_cc_ref_vec = (reflections.data[ref_index].local_matrix * vec4(cc_ref_vec, 0.0)).xyz;
 
-		if (reflections.data[ref_index].box_project) { // Box project.
-
+		// Box Projection //
+		if (reflections.data[ref_index].box_project)
+		{
 			vec3 nrdir = normalize(local_cc_ref_vec);
-			vec3 rbmax = (box_extents - local_pos) / nrdir;
-			vec3 rbmin = (-box_extents - local_pos) / nrdir;
+			vec3 rbmax = (-local_pos + box_extents) / nrdir;
+			vec3 rbmin = (-local_pos - box_extents) / nrdir;
 
 			vec3 rbminmax = mix(rbmin, rbmax, greaterThan(nrdir, vec3(0.0, 0.0, 0.0)));
 
@@ -1595,16 +1607,21 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 			local_cc_ref_vec = posonbox - reflections.data[ref_index].box_offset;
 		}
 
-		hvec4 cc_reflection;
+		vec4 cc_reflection;
 		half cc_reflection_blend = max(half(0.0), blend - cc_reflection_accum.a);
 
 		float cc_roughness_lod = sqrt(cc_roughness) * MAX_ROUGHNESS_LOD;
 		vec2 cc_reflection_uv = vec3_to_oct_with_border(local_cc_ref_vec, border_size);
-		cc_reflection.rgb = hvec3(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_reflection_uv, reflections.data[ref_index].index), cc_roughness_lod).rgb) * REFLECTION_MULTIPLIER;
-		cc_reflection.rgb *= half(reflections.data[ref_index].exposure_normalization);
-		cc_reflection.a = cc_reflection_blend;
+		cc_reflection.rgb = hvec3(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_reflection_uv, reflections.data[ref_index].index), cc_roughness_lod).rgb);
 
-		cc_reflection.rgb *= half(reflections.data[ref_index].intensity);
+#ifdef USE_IRRADIANCE_MATCHING
+		// Divide reflected irradiance out of radiance.
+		float cc_lo_irradiance = dot(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_reflection_uv, reflections.data[ref_index].index), MAX_ROUGHNESS_LOD).rgb, vec3(1.0/3.0));
+		cc_reflection.rgb *= IRR_MATCH_LAMBDA_N / (cc_lo_irradiance + IRR_MATCH_LAMBDA_D);
+#endif // USE_IRRADIANCE_MATCHING
+
+		cc_reflection.rgb *= reflections.data[ref_index].exposure_normalization * reflections.data[ref_index].intensity * REFLECTION_MULTIPLIER;
+		cc_reflection.a = cc_reflection_blend;
 		cc_reflection.rgb *= cc_reflection.a;
 
 		cc_reflection_accum += cc_reflection;
