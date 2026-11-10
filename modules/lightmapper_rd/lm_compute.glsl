@@ -709,17 +709,17 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, uint p_light_index, bool
 
 #if defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
 
-vec3 trace_environment_color(vec3 ray_dir) {
+vec3 trace_environment_color (vec3 ray_dir)
+{
 	vec3 sky_dir = normalize(mat3(bake_params.env_transform) * ray_dir);
-	vec2 st = vec2(atan(sky_dir.x, sky_dir.z), acos(sky_dir.y));
-	if (st.x < 0.0) {
+	vec2 st = vec2(atan(-sky_dir.x, -sky_dir.z), acos(sky_dir.y));
+	if (st.x < 0.0)
 		st.x += PI * 2.0;
-	}
-
 	return textureLod(sampler2D(environment, linear_sampler), st / vec2(PI * 2.0, PI), 0.0).rgb;
 }
 
-vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size) {
+vec3 trace_indirect_light (vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size)
+{
 	// The lower limit considers the case where the lightmapper might have bounces disabled but light probes are requested.
 	vec3 position = p_position;
 	vec3 ray_dir = p_ray_dir;
@@ -727,11 +727,13 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 	uint transparency_rays_left = bake_params.transparency_rays;
 	vec3 throughput = vec3(1.0);
 	vec3 light = vec3(0.0);
-	for (uint depth = 0; depth < max_depth; depth++) {
+	for (uint depth = 0; depth < max_depth; depth++)
+	{
 		uint tidx;
 		vec3 barycentric;
 		uint trace_result = trace_ray_closest_hit_triangle(position + ray_dir * bake_params.bias, position + ray_dir * length(bake_params.world_size), tidx, barycentric);
-		if (trace_result == RAY_FRONT) {
+		if (trace_result == RAY_FRONT)
+		{
 			Vertex vert0 = vertices.data[triangles.data[tidx].indices.x];
 			Vertex vert1 = vertices.data[triangles.data[tidx].indices.y];
 			Vertex vert2 = vertices.data[triangles.data[tidx].indices.z];
@@ -789,20 +791,23 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			// Use Russian Roulette to determine a probability to terminate the bounce earlier as an optimization.
 			// <https://computergraphics.stackexchange.com/questions/2316/is-russian-roulette-really-the-answer>
 			float p = max(max(throughput.x, throughput.y), throughput.z);
-			if (randomize(r_noise) > p) {
+			if (randomize(r_noise) > p)
 				break;
-			}
 
 			// Boost the throughput from the probability of the ray being terminated early.
 			throughput *= 1.0 / p;
 
 			// Generate a new ray direction for the next bounce from this surface's normal.
 			ray_dir = generate_ray_dir_from_normal(normal, r_noise);
-		} else if (trace_result == RAY_MISS) {
+		}
+		else if (trace_result == RAY_MISS)
+		{
 			// Look for the environment color and stop bouncing.
 			light += throughput * trace_environment_color(ray_dir);
 			break;
-		} else if (trace_result == RAY_BACK) {
+		}
+		else if (trace_result == RAY_BACK)
+		{
 			Vertex vert0 = vertices.data[triangles.data[tidx].indices.x];
 			Vertex vert1 = vertices.data[triangles.data[tidx].indices.y];
 			Vertex vert2 = vertices.data[triangles.data[tidx].indices.z];
