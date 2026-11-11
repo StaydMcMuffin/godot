@@ -3797,6 +3797,7 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/lightmapping/probe_capture/update_speed", PROPERTY_HINT_RANGE, "0.001,256,0.001"), 15);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/lightmapping/primitive_meshes/texel_size", PROPERTY_HINT_RANGE, "0.001,100,0.001"), 0.2);
 	GLOBAL_DEF("rendering/lightmapping/lightmap_gi/use_bicubic_filter", true);
+	GLOBAL_DEF_RST("rendering/lightmapping/lightmap_gi/high_quality_directionality", true);
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/global_illumination/sdfgi/probe_ray_count", PROPERTY_HINT_ENUM, "8 (Fastest),16,32,64,96,128 (Slowest)"), 1);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/global_illumination/sdfgi/frames_to_converge", PROPERTY_HINT_ENUM, "5 (Less Latency but Lower Quality),10,15,20,25,30 (More Latency but Higher Quality)"), 5);
@@ -3825,12 +3826,15 @@ void RenderingServer::init() {
 	GLOBAL_DEF("debug/shader_language/warnings/treat_warnings_as_errors", false);
 
 #ifdef DEBUG_ENABLED
-	for (int i = 0; i < (int)ShaderWarning::WARNING_MAX; i++) {
+	for (int i = 0; i < (int)ShaderWarning::WARNING_MAX; i++)
+	{
 		GLOBAL_DEF("debug/shader_language/warnings/" + ShaderWarning::get_name_from_code((ShaderWarning::Code)i).to_lower(), true);
 	}
-#endif
+#endif // DEBUG_ENABLED
 }
 
-RenderingServer::~RenderingServer() {
+
+RenderingServer::~RenderingServer()
+{
 	singleton = nullptr;
 }

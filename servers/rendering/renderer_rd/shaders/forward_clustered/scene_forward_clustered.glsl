@@ -2137,27 +2137,35 @@ void fragment_shader(
 				lm_light_l1_0 = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb * vec3(2.0) - vec3(1.0);
 				lm_light_l1p1 = textureLod(sampler2DArray(lightmap_textures[idx], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb * vec3(2.0) - vec3(1.0);
 			}
+			lm_light_l1p1 *= lm_light_l0 * 4.0;
+			lm_light_l1n1 *= lm_light_l0 * 4.0;
+			lm_light_l1_0 *= lm_light_l0 * 4.0;
 
-			vec3 n = normalize(lm_data.normal_xform * irradiance_vec) * 4.0;
-			lm_diffuse  = lm_light_l0;
-			lm_diffuse += lm_light_l1p1 * n.x * lm_light_l0;
-			lm_diffuse += lm_light_l1n1 * n.y * lm_light_l0;
-			lm_diffuse += lm_light_l1_0 * n.z * lm_light_l0;
-			lm_diffuse = max(vec3(0.0), lm_diffuse) * lm_data.exposure_normalization;
+#ifdef LIGHTMAP_HIGH_QUALITY_SH
+			vec3 sh_zonal_axis, sh_zl2_coeff;
+			sh_l1_get_zh3_band(lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0, sh_zonal_axis, sh_zl2_coeff);
+#endif // LIGHTMAP_HIGH_QUALITY_SH
+
+			vec3 n = normalize(lm_data.normal_xform * irradiance_vec);
+#ifdef LIGHTMAP_HIGH_QUALITY_SH
+			lm_diffuse = sh_l1_evaluate_zh3(n, lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0, sh_zonal_axis, sh_zl2_coeff) * lm_data.exposure_normalization;
+#else
+			lm_diffuse = sh_l1_evaluate(n, lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0) * lm_data.exposure_normalization;
+#endif // LIGHTMAP_HIGH_QUALITY_SH
 #ifndef SPECULAR_DISABLED
-			vec3 r = normalize(lm_data.normal_xform * radiance_vec) * 4.0;
-			lm_specular  = lm_light_l0;
-			lm_specular += lm_light_l1p1 * r.x * lm_light_l0;
-			lm_specular += lm_light_l1n1 * r.y * lm_light_l0;
-			lm_specular += lm_light_l1_0 * r.z * lm_light_l0;
-			lm_specular = max(vec3(0.0), lm_specular) * lm_data.exposure_normalization * (1.0 / M_PI);
+			vec3 r = normalize(lm_data.normal_xform * radiance_vec);
+#ifdef LIGHTMAP_HIGH_QUALITY_SH
+			lm_specular = sh_l1_evaluate_zh3(r, lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0, sh_zonal_axis, sh_zl2_coeff) * lm_data.exposure_normalization * (1.0 / M_PI);
+#else
+			lm_specular = sh_l1_evaluate(r, lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0) * lm_data.exposure_normalization * (1.0 / M_PI);
+#endif // LIGHTMAP_HIGH_QUALITY_SH
 #ifdef LIGHT_CLEARCOAT_USED
-			vec3 cc_r = normalize(lm_data.normal_xform * cc_radiance_vec) * 4.0;
-			cc_lm_specular  = lm_light_l0;
-			cc_lm_specular += lm_light_l1p1 * cc_r.x * lm_light_l0;
-			cc_lm_specular += lm_light_l1n1 * cc_r.y * lm_light_l0;
-			cc_lm_specular += lm_light_l1_0 * cc_r.z * lm_light_l0;
-			cc_lm_specular = max(vec3(0.0), cc_lm_specular) * lm_data.exposure_normalization * (1.0 / M_PI);
+			vec3 cc_r = normalize(lm_data.normal_xform * cc_radiance_vec);
+#ifdef LIGHTMAP_HIGH_QUALITY_SH
+			cc_lm_specular = sh_l1_evaluate_zh3(cc_r, lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0, sh_zonal_axis, sh_zl2_coeff) * lm_data.exposure_normalization * (1.0 / M_PI);
+#else
+			cc_lm_specular = sh_l1_evaluate(cc_r, lm_light_l0, lm_light_l1p1, lm_light_l1n1, lm_light_l1_0) * lm_data.exposure_normalization * (1.0 / M_PI);
+#endif // LIGHTMAP_HIGH_QUALITY_SH
 #endif // LIGHT_CLEARCOAT_USED
 #ifdef USE_IRRADIANCE_MATCHING
 			// Divide reflected irradiance out of radiance, will be multiplied back in if nothing better is available.

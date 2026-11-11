@@ -13,6 +13,7 @@
 #define BASIS_A2_2			0.429043	// sqrt(15.0/(16.0*PI))* PI*1.0/4.0
 
 #define BASIS_B1			BASIS_A1 * (3.0 / 2.0)
+#define BASIS_Z3			(sqrt(5.0 / (16.0 * M_PI)))
 
 
 /// Project a scalar value into the L1 basis in a given direction.
@@ -67,6 +68,20 @@ vec3 sh_l1_evaluate(in vec4 sh_r, in vec4 sh_g, in vec4 sh_b, in vec3 dir)
 		dot(sh_g, delta),
 		dot(sh_b, delta)
 	), vec3(0.0));
+}
+
+/// Evaluate the irradiance of a set of L1 coefficients in a given direction (lightmap SH version).
+vec3 sh_l1_evaluate (
+		in vec3 dir,
+		in vec3 sh_l0,
+		in vec3 sh_l1_x, in vec3 sh_l1_y, in vec3 sh_l1_z
+	)
+{
+	vec3 out_sh = sh_l0;
+	out_sh += sh_l1_x * dir.x;
+	out_sh += sh_l1_y * dir.y;
+	out_sh += sh_l1_z * dir.z;
+	return max(vec3(0.0), out_sh);
 }
 
 /// Evaluate the radiance of a set of L1 coefficients in a given direction.
@@ -164,7 +179,7 @@ vec3 sh_l1_evaluate_geomerics (
 	return max(vec3(0.0), out_sh) * (0.886227 + 1.023327);
 }
 
-/// Evalutate a set of L2 SH coefficients in the given direction, with hallucinated ZH3 band.
+/// Evalutate a set of L1 SH coefficients in the given direction, with hallucinated ZH3 band.
 /// From "ZH3: Quadratic Zonal Harmonics" ( https://torust.me/ZH3.p )
 vec3 sh_l1_evaluate_zh3 (
 		in vec3 dir,
@@ -172,7 +187,7 @@ vec3 sh_l1_evaluate_zh3 (
 		in vec3 sh_l1_x, in vec3 sh_l1_y, in vec3 sh_l1_z
 	)
 {
-	sh_l1_x *= sh_l0 * 4.0; sh_l1_y *= sh_l0 * 4.0; sh_l1_z *= sh_l0 * 4.0;
+	
 	const vec3 lum = vec3(0.212639, 0.715169, 0.072192);
 	vec3 zonal_axis = normalize(vec3(
 		dot(sh_l1_x, lum),
@@ -187,13 +202,52 @@ vec3 sh_l1_evaluate_zh3 (
 	vec3 zl2_coeff = sh_l0.rgb * (vec3(0.08) * ratio + vec3(0.6) * ratio * ratio);
 	
 	float z = dot(zonal_axis, dir);
-	float zh_dir = sqrt(5.0 / (16.0 * M_PI)) * (3.0 * z * z - 1.0);
+	float zh_dir = BASIS_Z3 * (3.0 * z * z - 1.0);
 	
 	vec3 out_sh = sh_l0;
 	out_sh += sh_l1_x * dir.x;
 	out_sh += sh_l1_y * dir.y;
 	out_sh += sh_l1_z * dir.z;
 	return max(vec3(0.0), out_sh + (0.25 * zl2_coeff * zh_dir));
+}
+
+/// Calculate the "hallucinated" ZH3 band for a set of L1 SH coefficients.
+void sh_l1_get_zh3_band (
+		in vec3 sh_l0,
+		in vec3 sh_l1_x, in vec3 sh_l1_y, in vec3 sh_l1_z,
+		out vec3 zonal_axis, out vec3 zl2_coeff
+	)
+{
+	const vec3 lum = vec3(0.212639, 0.715169, 0.072192);
+	zonal_axis = normalize(vec3(
+		dot(sh_l1_x, lum),
+		dot(sh_l1_y, lum),
+		dot(sh_l1_z, lum)
+	));
+	vec3 ratio = vec3(
+		abs(dot(vec3(sh_l1_x[0], sh_l1_y[0], sh_l1_z[0]), zonal_axis)),
+		abs(dot(vec3(sh_l1_x[1], sh_l1_y[1], sh_l1_z[1]), zonal_axis)),
+		abs(dot(vec3(sh_l1_x[2], sh_l1_y[2], sh_l1_z[2]), zonal_axis))
+	) / (vec3(sh_l0.r, sh_l0.g, sh_l0.b) + 0.0001);
+	zl2_coeff = sh_l0.rgb * (vec3(0.08) * ratio + vec3(0.6) * ratio * ratio) * 0.25;
+}
+
+/// Evalutate a set of L1+ZH3 SH coefficients in the given direction.
+vec3 sh_l1_evaluate_zh3 (
+		in vec3 dir,
+		in vec3 sh_l0,
+		in vec3 sh_l1_x, in vec3 sh_l1_y, in vec3 sh_l1_z,
+		in vec3 zonal_axis, in vec3 zl2_coeff
+	)
+{	
+	float z = dot(zonal_axis, dir);
+	float zh_dir = BASIS_Z3 * (3.0 * z * z - 1.0);
+	
+	vec3 out_sh = sh_l0;
+	out_sh += sh_l1_x * dir.x;
+	out_sh += sh_l1_y * dir.y;
+	out_sh += sh_l1_z * dir.z;
+	return max(vec3(0.0), out_sh + zl2_coeff * zh_dir);
 }
 
 /// Evaluate a set of L2 SH coefficients in the given direction.
