@@ -559,7 +559,8 @@ void RenderingDeviceDriverVulkan::_register_requested_device_extension(const Cha
 	requested_device_extensions[p_extension_name] = p_required;
 }
 
-Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
+Error RenderingDeviceDriverVulkan::_initialize_device_extensions()
+{
 	enabled_device_extension_names.clear();
 
 	_register_requested_device_extension(VK_KHR_SWAPCHAIN_EXTENSION_NAME, true);
@@ -586,19 +587,18 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 	_register_requested_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, false);
+	_register_requested_device_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME, false);
 
 	// We don't actually use this extension, but some runtime components on some platforms
 	// can and will fill the validation layers with useless info otherwise if not enabled.
 	_register_requested_device_extension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, false);
 
-	if (Engine::get_singleton()->is_generate_spirv_debug_info_enabled()) {
+	if (Engine::get_singleton()->is_generate_spirv_debug_info_enabled())
 		_register_requested_device_extension(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, true);
-	}
 
 #if defined(VK_TRACK_DEVICE_MEMORY)
-	if (Engine::get_singleton()->is_extra_gpu_memory_tracking_enabled()) {
+	if (Engine::get_singleton()->is_extra_gpu_memory_tracking_enabled())
 		_register_requested_device_extension(VK_EXT_DEVICE_MEMORY_REPORT_EXTENSION_NAME, false);
-	}
 #endif
 	_register_requested_device_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME, false);
 
@@ -610,9 +610,8 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 #else
 		bool want_debug_markers = OS::get_singleton()->is_stdout_verbose();
 #endif
-		if (want_debug_markers) {
+		if (want_debug_markers)
 			_register_requested_device_extension(VK_EXT_DEBUG_MARKER_EXTENSION_NAME, false);
-		}
 	}
 
 	_register_requested_device_extension(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME, false);
@@ -5952,7 +5951,9 @@ RDD::PipelineID RenderingDeviceDriverVulkan::render_pipeline_create(
 		BitField<PipelineDynamicStateFlags> p_dynamic_state,
 		RenderPassID p_render_pass,
 		uint32_t p_render_subpass,
-		VectorView<PipelineSpecializationConstant> p_specialization_constants) {
+		VectorView<PipelineSpecializationConstant> p_specialization_constants
+	)
+{
 	// Vertex.
 	const VkPipelineVertexInputStateCreateInfo *vertex_input_state_create_info = nullptr;
 	if (p_vertex_format.id) {
@@ -6001,6 +6002,16 @@ RDD::PipelineID RenderingDeviceDriverVulkan::render_pipeline_create(
 	rasterization_state_create_info.depthBiasClamp = p_rasterization_state.depth_bias_clamp;
 	rasterization_state_create_info.depthBiasSlopeFactor = p_rasterization_state.depth_bias_slope_factor;
 	rasterization_state_create_info.lineWidth = p_rasterization_state.line_width;
+
+	if (p_rasterization_state.conservative_mode > 0)
+	{
+		VkPipelineRasterizationConservativeStateCreateInfoEXT conservative_state_create_info = {};
+		conservative_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+		conservative_state_create_info.flags = 0;
+		conservative_state_create_info.conservativeRasterizationMode = (VkConservativeRasterizationModeEXT)p_rasterization_state.conservative_mode;
+		conservative_state_create_info.extraPrimitiveOverestimationSize = 0.0f;
+		rasterization_state_create_info.pNext = &conservative_state_create_info;
+	}
 
 	// Multisample.
 	VkPipelineMultisampleStateCreateInfo multisample_state_create_info = {};

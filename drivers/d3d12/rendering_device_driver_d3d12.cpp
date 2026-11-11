@@ -5188,7 +5188,8 @@ RDD::PipelineID RenderingDeviceDriverD3D12::render_pipeline_create(
 	(&pipeline_desc.RasterizerState)->CullMode = RD_POLYGON_CULL_TO_D3D12_CULL_MODE[p_rasterization_state.cull_mode];
 	(&pipeline_desc.RasterizerState)->FrontCounterClockwise = p_rasterization_state.front_face == POLYGON_FRONT_FACE_COUNTER_CLOCKWISE;
 	// In D3D12, there's still a point in setting up depth bias with no depth buffer, but just zeroing (disabling) it all in such case is closer to Vulkan.
-	if (p_rasterization_state.depth_bias_enabled && pipeline_desc.DSVFormat != DXGI_FORMAT_UNKNOWN) {
+	if (p_rasterization_state.depth_bias_enabled && pipeline_desc.DSVFormat != DXGI_FORMAT_UNKNOWN)
+	{
 		(&pipeline_desc.RasterizerState)->DepthBias = p_rasterization_state.depth_bias_constant_factor;
 		(&pipeline_desc.RasterizerState)->DepthBiasClamp = p_rasterization_state.depth_bias_clamp;
 		(&pipeline_desc.RasterizerState)->SlopeScaledDepthBias = p_rasterization_state.depth_bias_slope_factor;
@@ -5197,7 +5198,7 @@ RDD::PipelineID RenderingDeviceDriverD3D12::render_pipeline_create(
 		(&pipeline_desc.RasterizerState)->SlopeScaledDepthBias = 0.0f;
 	}
 	(&pipeline_desc.RasterizerState)->ForcedSampleCount = 0;
-	(&pipeline_desc.RasterizerState)->ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+	(&pipeline_desc.RasterizerState)->ConservativeRaster = p_rasterization_state.conservative_mode == 1 ? D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON : D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 	(&pipeline_desc.RasterizerState)->MultisampleEnable = TEXTURE_SAMPLES_COUNT[p_multisample_state.sample_count] != 1;
 	(&pipeline_desc.RasterizerState)->AntialiasedLineEnable = true;
 

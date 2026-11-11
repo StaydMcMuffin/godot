@@ -741,6 +741,14 @@ public:
 		POLYGON_FRONT_FACE_COUNTER_CLOCKWISE,
 	};
 
+	enum PolygonConservativeMode
+	{
+		POLYGON_CONSERVATIVE_DISABLED,
+		POLYGON_CONSERVATIVE_OVER,
+		POLYGON_CONSERVATIVE_UNDER,
+		POLYGON_CONSERVATIVE_MAX
+	};
+
 	enum StencilOperation {
 		STENCIL_OP_KEEP,
 		STENCIL_OP_ZERO,
@@ -805,7 +813,9 @@ public:
 		BLEND_OP_MAX
 	};
 
-	struct PipelineRasterizationState {
+
+	struct PipelineRasterizationState
+	{
 		bool enable_depth_clamp = false;
 		bool discard_primitives = false;
 		bool wireframe = false;
@@ -817,7 +827,9 @@ public:
 		float depth_bias_slope_factor = 0.0f;
 		float line_width = 1.0f;
 		uint32_t patch_control_points = 1;
+		PolygonConservativeMode conservative_mode = POLYGON_CONSERVATIVE_DISABLED;
 	};
+
 
 	struct PipelineMultisampleState {
 		TextureSamples sample_count = TEXTURE_SAMPLES_1;
