@@ -38,9 +38,30 @@
 
 #include <cstring>
 
+
 extern bool (*array_mesh_lightmap_unwrap_callback)(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y);
 
-bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y) {
+
+bool xatlas_mesh_lightmap_unwrap_callback (
+		float p_texel_size,
+  const	float *p_vertices,
+  const float *p_normals,
+		int p_vertex_count,
+  const int *p_indices,
+		int p_index_count,
+  const uint8_t *p_cache_data,
+		bool *r_use_cache,
+		uint8_t **r_mesh_cache,
+		int *r_mesh_cache_size,
+		float **r_uv,
+		int **r_vertex,
+		int *r_vertex_count,
+		int **r_index,
+		int *r_index_count,
+		int *r_size_hint_x,
+		int *r_size_hint_y
+	)
+{
 	CryptoCore::MD5Context ctx;
 	ctx.start();
 
@@ -58,13 +79,16 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 	*r_mesh_cache = nullptr;
 	*r_mesh_cache_size = 0;
 
-	if (p_cache_data) {
-		//Check if hash is in cache data
+	if (p_cache_data)
+	{
+		// Check if hash is in cache data.
 		int *cache_data = (int *)p_cache_data;
 		int n_entries = cache_data[0];
 		unsigned int read_idx = 1;
-		for (int i = 0; i < n_entries; ++i) {
-			if (memcmp(&cache_data[read_idx], hash, 16) == 0) {
+		for (int i = 0; i < n_entries; ++i)
+		{
+			if (memcmp(&cache_data[read_idx], hash, 16) == 0)
+			{
 				cached = true;
 				cache_idx = read_idx;
 				break;
@@ -84,7 +108,8 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		}
 	}
 
-	if (cached) {
+	if (cached)
+	{
 		int *cache_data = (int *)p_cache_data;
 
 		cache_idx += 4;
@@ -108,7 +133,9 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		*r_index_count = cache_data[cache_idx];
 		cache_idx++;
 		*r_index = &cache_data[cache_idx];
-	} else {
+	}
+	else
+	{
 		// set up input mesh
 		xatlas::MeshDecl input_mesh;
 		input_mesh.indexData = p_indices;
@@ -129,8 +156,8 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		ERR_FAIL_COND_V_MSG(p_texel_size <= 0.0f, false, "Texel size must be greater than 0.");
 
 		xatlas::PackOptions pack_options;
-		pack_options.padding = 1;
-		pack_options.maxChartSize = 4094; // Lightmap atlassing needs 2 for padding between meshes, so 4096-2
+		pack_options.padding = 2;  // 2 pixels of padding needed for bicubic filtering.
+		//pack_options.maxChartSize = 4092; // Lightmap atlasing needs 2 pixels for padding between meshes, so 4096-2*2
 		pack_options.blockAlign = true;
 		pack_options.texelsPerUnit = 1.0 / p_texel_size;
 
@@ -147,9 +174,10 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		float w = *r_size_hint_x;
 		float h = *r_size_hint_y;
 
-		if (w == 0 || h == 0) {
+		if (w == 0 || h == 0)
+		{
 			xatlas::Destroy(atlas);
-			return false; //could not bake because there is no area
+			return false;  // Could not bake because there is no area.
 		}
 
 		const xatlas::Mesh &output = atlas->meshes[0];
@@ -163,7 +191,8 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 
 		float max_x = 0;
 		float max_y = 0;
-		for (uint32_t i = 0; i < output.vertexCount; i++) {
+		for (uint32_t i = 0; i < output.vertexCount; i++)
+		{
 			(*r_vertex)[i] = output.vertexArray[i].xref;
 			(*r_uv)[i * 2 + 0] = output.vertexArray[i].uv[0] / w;
 			(*r_uv)[i * 2 + 1] = output.vertexArray[i].uv[1] / h;
@@ -173,7 +202,8 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 
 		*r_vertex_count = output.vertexCount;
 
-		for (uint32_t i = 0; i < output.indexCount; i++) {
+		for (uint32_t i = 0; i < output.indexCount; i++)
+		{
 			(*r_index)[i] = output.indexArray[i];
 		}
 
@@ -182,10 +212,10 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		xatlas::Destroy(atlas);
 	}
 
-	if (*r_use_cache) {
-		// Build cache data for current mesh
-
-		unsigned int new_cache_size = 4 + 2 + 1 + *r_vertex_count + (*r_vertex_count * 2) + 1 + *r_index_count; // hash + size hint + vertex_count + vertices + uvs + index_count + indices
+	// Build cache data for current mesh.
+	if (*r_use_cache)
+	{
+		unsigned int new_cache_size = 4 + 2 + 1 + *r_vertex_count + (*r_vertex_count * 2) + 1 + *r_index_count;  // hash + size hint + vertex_count + vertices + uvs + index_count + indices
 		new_cache_size *= sizeof(int);
 		int *new_cache_data = (int *)memalloc(new_cache_size);
 		unsigned int new_cache_idx = 0;
@@ -223,21 +253,25 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		*r_mesh_cache_size = new_cache_size;
 	}
 
-	*r_use_cache = cached; // Return whether cache was used.
+	*r_use_cache = cached;  // Return whether cache was used.
 
 	return true;
 }
 
-void initialize_xatlas_unwrap_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+
+void initialize_xatlas_unwrap_module (
+		ModuleInitializationLevel p_level)
+{
+	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
 		return;
-	}
 
 	array_mesh_lightmap_unwrap_callback = xatlas_mesh_lightmap_unwrap_callback;
 }
 
-void uninitialize_xatlas_unwrap_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+
+void uninitialize_xatlas_unwrap_module (
+		ModuleInitializationLevel p_level)
+{
+	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
 		return;
-	}
 }
