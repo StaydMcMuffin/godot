@@ -347,59 +347,59 @@ void RendererSceneRenderRD::_render_buffers_ensure_screen_texture(const RenderDa
 	}
 }
 
-void RendererSceneRenderRD::_render_buffers_copy_screen_texture(const RenderDataRD *p_render_data) {
+
+void RendererSceneRenderRD::_render_buffers_copy_screen_texture
+	(
+  const RenderDataRD *p_render_data
+	)
+{
 	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
 	ERR_FAIL_COND(rb.is_null());
 
-	if (!rb->has_internal_texture()) {
-		// We're likely rendering reflection probes where we can't use our backbuffers.
-		return;
-	}
+	if (!rb->has_internal_texture())
+		return;  // We're likely rendering reflection probes where we can't use our backbuffers.
 
 	RD::get_singleton()->draw_command_begin_label("Copy Screen Texture");
 
-	StringName texture_name;
-	bool can_use_storage = _render_buffers_can_be_storage();
-	Size2i size = rb->get_internal_size();
-
 	// When upscaling, the blur texture needs to be at the target size for post-processing to work. We prefer to use a
 	// dedicated backbuffer copy texture instead if the blur texture is not an option so shader effects work correctly.
+	Size2i size = rb->get_internal_size();
 	Size2i target_size = rb->get_target_size();
-	bool internal_size_matches = (size.width == target_size.width) && (size.height == target_size.height);
-	bool reuse_blur_texture = !rb->has_upscaled_texture() || internal_size_matches;
-	if (reuse_blur_texture) {
-		texture_name = RB_TEX_BLUR_0;
-	} else {
-		texture_name = RB_TEX_BACK_COLOR;
-	}
+	const bool can_use_storage = _render_buffers_can_be_storage();
+	const bool internal_size_matches = (size.width == target_size.width) && (size.height == target_size.height);
+	const bool reuse_blur_texture = !rb->has_upscaled_texture() || internal_size_matches;
+	const StringName texture_name = reuse_blur_texture ? RB_TEX_BLUR_0 : RB_TEX_BACK_COLOR;
 
-	for (uint32_t v = 0; v < rb->get_view_count(); v++) {
+	for (uint32_t v = 0; v < rb->get_view_count(); v++)
+	{
 		RID texture = rb->get_internal_texture(v);
 		int mipmaps = int(rb->get_texture_format(RB_SCOPE_BUFFERS, texture_name).mipmaps);
 		RID dest = rb->get_texture_slice(RB_SCOPE_BUFFERS, texture_name, v, 0);
 
-		if (can_use_storage) {
+		if (can_use_storage)
 			copy_effects->copy_to_rect(texture, dest, Rect2i(0, 0, size.x, size.y));
-		} else {
+		else
+		{
 			RID fb = FramebufferCacheRD::get_singleton()->get_cache(dest);
 			copy_effects->copy_to_fb_rect(texture, fb, Rect2i(0, 0, size.x, size.y));
 		}
 
-		for (int i = 1; i < mipmaps; i++) {
+		for (int i = 1; i < mipmaps; i++)
+		{
 			RID source = dest;
 			dest = rb->get_texture_slice(RB_SCOPE_BUFFERS, texture_name, v, i);
 			Size2i msize = rb->get_texture_slice_size(RB_SCOPE_BUFFERS, texture_name, i);
 
-			if (can_use_storage) {
+			if (can_use_storage)
 				copy_effects->make_mipmap(source, dest, msize);
-			} else {
+			else
 				copy_effects->make_mipmap_raster(source, dest, msize);
-			}
 		}
 	}
 
 	RD::get_singleton()->draw_command_end_label();
 }
+
 
 void RendererSceneRenderRD::_render_buffers_ensure_depth_texture(const RenderDataRD *p_render_data) {
 	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;

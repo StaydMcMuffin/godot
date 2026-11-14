@@ -469,26 +469,83 @@ private:
 	static_assert(std::is_trivially_destructible_v<RenderElementInfo>);
 	static_assert(std::is_trivially_constructible_v<RenderElementInfo>);
 
-	template <PassMode p_pass_mode, uint32_t p_color_pass_flags = 0>
-	_FORCE_INLINE_ void _render_list_template(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
-	void _render_list(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
-	void _render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL, const Vector<Color> &p_clear_color_values = Vector<Color>(), float p_clear_depth_value = 0.0, uint32_t p_clear_stencil_value = 0, const Rect2 &p_region = Rect2());
 
-	void _fill_instance_data(RenderListType p_render_list, int *p_render_info = nullptr, uint32_t p_offset = 0, int32_t p_max_elements = -1, bool p_update_buffer = true);
-	void _fill_render_list(RenderListType p_render_list, const RenderDataRD *p_render_data, PassMode p_pass_mode, bool p_using_sdfgi = false, bool p_using_opaque_gi = false, bool p_using_motion_pass = false, bool p_append = false);
+	template <PassMode p_pass_mode, uint32_t p_color_pass_flags = 0>
+	_FORCE_INLINE_
+	void _render_list_template (
+			RD::DrawListID p_draw_list,
+			RD::FramebufferFormatID p_framebuffer_Format,
+			RenderListParameters *p_params,
+			uint32_t p_from_element,
+			uint32_t p_to_element,
+			RID p_framebuffer = RID(),
+			BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL,
+  	  const	Vector<Color> &p_clear_color_values = Vector<Color>(),
+			float p_clear_depth_value = 0.0,
+			uint32_t p_clear_stencil_value = 0,
+  	  const	Rect2 &p_region = Rect2(),
+	  const	RenderDataRD *p_render_data = nullptr
+	);
+	
+	void _render_list (
+			RD::DrawListID p_draw_list,
+			RD::FramebufferFormatID p_framebuffer_Format,
+			RenderListParameters *p_params,
+			uint32_t p_from_element,
+			uint32_t p_to_element,
+			RID p_framebuffer = RID(),
+			BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL,
+  	  const	Vector<Color> &p_clear_color_values = Vector<Color>(),
+			float p_clear_depth_value = 0.0,
+			uint32_t p_clear_stencil_value = 0,
+  	  const	Rect2 &p_region = Rect2(),
+	  const	RenderDataRD *p_render_data = nullptr
+	);
+
+	void _render_list_with_draw_list (
+			RenderListParameters *p_params,
+			RID p_framebuffer,
+			BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL,
+	  const	Vector<Color> &p_clear_color_values = Vector<Color>(),
+			float p_clear_depth_value = 0.0,
+			uint32_t p_clear_stencil_value = 0,
+	  const	Rect2 &p_region = Rect2(),
+	  const	RenderDataRD *p_render_data = nullptr
+	);
+
+	void _fill_instance_data (
+			RenderListType p_render_list,
+			int *p_render_info = nullptr,
+			uint32_t p_offset = 0,
+			int32_t p_max_elements = -1,
+			bool p_update_buffer = true
+	);
+	
+	void _fill_render_list (
+			RenderListType p_render_list,
+	  const	RenderDataRD *p_render_data,
+			PassMode p_pass_mode,
+			bool p_using_sdfgi = false,
+			bool p_using_opaque_gi = false,
+			bool p_using_motion_pass = false,
+			bool p_append = false
+	);
 
 	HashMap<Size2i, RID> sdfgi_framebuffer_size_cache;
 
 	struct GeometryInstanceData;
 	class GeometryInstanceForwardClustered;
 
-	struct GeometryInstanceLightmapSH {
+	struct GeometryInstanceLightmapSH
+	{
 		Color sh[9];
 	};
 
-	// Cached data for drawing surfaces
-	struct GeometryInstanceSurfaceDataCache {
-		enum {
+	// Cached data for drawing surfaces.
+	struct GeometryInstanceSurfaceDataCache
+	{
+		enum
+		{
 			FLAG_PASS_DEPTH = 1,
 			FLAG_PASS_OPAQUE = 2,
 			FLAG_PASS_ALPHA = 4,
@@ -504,13 +561,17 @@ private:
 			FLAG_USES_STENCIL = 262144,
 		};
 
-		union {
-			struct {
+		/** Scene sorting key (128-bit) */
+		union
+		{
+			struct
+			{
 				uint64_t sort_key1;
 				uint64_t sort_key2;
 			};
-			struct {
-				// Needs to be grouped together to be used in RenderElementInfo, as the value is masked directly.
+			struct
+			{
+				// These need to be grouped together to be used in RenderElementInfo, as the key is masked directly.
 				uint64_t lod_index : 8;
 				uint64_t uses_softshadow : 1;
 				uint64_t uses_projector : 1;
@@ -553,6 +614,7 @@ private:
 		GeometryInstanceSurfaceDataCache() :
 				compilation_dirty_element(this), compilation_all_element(this) {}
 	};
+
 
 	class GeometryInstanceForwardClustered : public RenderGeometryInstanceBase {
 	public:
@@ -670,109 +732,128 @@ private:
 	void _update_dirty_geometry_instances();
 	void _update_dirty_geometry_pipelines();
 
-	// Global data about the scene that can be used to pre-allocate resources without relying on culling.
-	struct GlobalSurfaceData {
+
+	/** Global data about surfaces in the scene that can be used to pre-allocate resources without relying on scene culling. */
+	struct GlobalSurfaceData
+	{
 		bool screen_texture_used = false;
 		bool normal_texture_used = false;
 		bool depth_texture_used = false;
 		bool sss_used = false;
 	} global_surface_data;
 
-	/* Render List */
 
-	struct RenderList {
+	////////////////////////
+	////  Render List  ////
+
+	struct RenderList
+	{
 		LocalVector<GeometryInstanceSurfaceDataCache *> elements;
 		LocalVector<RenderElementInfo> element_info;
 
-		void clear() {
+		void clear()
+		{
 			elements.clear();
 			element_info.clear();
 		}
+		// TODO: Sorting is currently done with introsort, should eventually be replaced with radix.
 
-		//should eventually be replaced by radix
-
-		struct SortByKey {
-			_FORCE_INLINE_ bool operator()(const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const {
+		// Full Scene Key Sort //
+		struct SortByKey
+		{
+			_FORCE_INLINE_
+			bool operator() (const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const
+			{
 				return (A->sort.sort_key2 == B->sort.sort_key2) ? (A->sort.sort_key1 < B->sort.sort_key1) : (A->sort.sort_key2 < B->sort.sort_key2);
 			}
 		};
-
-		void sort_by_key() {
+		void sort_by_key()
+		{
 			SortArray<GeometryInstanceSurfaceDataCache *, SortByKey> sorter;
 			sorter.sort(elements.ptr(), elements.size());
 		}
-
-		void sort_by_key_range(uint32_t p_from, uint32_t p_size) {
+		void sort_by_key_range (uint32_t p_from, uint32_t p_size)
+		{
 			SortArray<GeometryInstanceSurfaceDataCache *, SortByKey> sorter;
 			sorter.sort(elements.ptr() + p_from, p_size);
 		}
 
-		struct SortByDepth {
-			_FORCE_INLINE_ bool operator()(const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const {
+		// Pure Depth Sort (for shadow pass) //
+		struct SortByDepth
+		{
+			_FORCE_INLINE_
+			bool operator() (const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const
+			{
 				return (A->owner->depth < B->owner->depth);
 			}
 		};
-
-		void sort_by_depth() { //used for shadows
-
+		void sort_by_depth()
+		{
 			SortArray<GeometryInstanceSurfaceDataCache *, SortByDepth> sorter;
 			sorter.sort(elements.ptr(), elements.size());
 		}
 
-		struct SortByReverseDepthAndPriority {
-			_FORCE_INLINE_ bool operator()(const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const {
+		// Reverse Depth Sort + Material Priority (for alpha pass) //
+		struct SortByReverseDepthAndPriority
+		{
+			_FORCE_INLINE_
+			bool operator() (const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const
+			{
 				return (A->sort.priority == B->sort.priority) ? (A->owner->depth > B->owner->depth) : (A->sort.priority < B->sort.priority);
 			}
 		};
-
-		void sort_by_reverse_depth_and_priority() { //used for alpha
-
+		void sort_by_reverse_depth_and_priority()
+		{
 			SortArray<GeometryInstanceSurfaceDataCache *, SortByReverseDepthAndPriority> sorter;
 			sorter.sort(elements.ptr(), elements.size());
 		}
 
-		_FORCE_INLINE_ void add_element(GeometryInstanceSurfaceDataCache *p_element) {
-			elements.push_back(p_element);
-		}
+		_FORCE_INLINE_
+		void add_element (GeometryInstanceSurfaceDataCache *p_element)
+		{	elements.push_back(p_element);	}
 	};
-
 	RenderList render_list[RENDER_LIST_MAX];
 
-	virtual void _update_shader_quality_settings() override;
 
-	/* Effects */
+	virtual
+	void _update_shader_quality_settings() override;
 
+
+	// Post Effects //
 	RendererRD::TAA *taa = nullptr;
 	RendererRD::FSR2Effect *fsr2_effect = nullptr;
 	RendererRD::SSEffects *ss_effects = nullptr;
-
 #ifdef METAL_MFXTEMPORAL_ENABLED
 	RendererRD::MFXTemporalEffect *mfx_temporal_effect = nullptr;
-#endif
+#endif // METAL_MFXTEMPORAL_ENABLED
 	RendererRD::MotionVectorsStore *motion_vectors_store = nullptr;
 
-	/* Cluster builder */
-
+	
+	// Cluster Builder //
 	ClusterBuilderSharedDataRD cluster_builder_shared;
 	ClusterBuilderRD *current_cluster_builder = nullptr;
 
-	/* SDFGI */
+
+	// SDFGI Update //
 	void _update_sdfgi(RenderDataRD *p_render_data);
 
-	/* Volumetric fog */
-	RID shadow_sampler;
 
+	// Volumetric Fog //
+	RID shadow_sampler;
 	void _update_volumetric_fog(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const Projection &p_cam_projection, const Transform3D &p_cam_transform, const Transform3D &p_prev_cam_inv_transform, RID p_shadow_atlas, int p_directional_light_count, bool p_use_directional_shadows, int p_positional_light_count, int p_voxel_gi_count, const PagedArray<RID> &p_fog_volumes);
 
-	/* Render shadows */
 
+	// Render Shadows //
 	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
 	void _render_shadow_begin();
 	void _render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier = 0.0, float p_screen_mesh_lod_threshold = 0.0, const Rect2i &p_rect = Rect2i(), bool p_flip_y = false, bool p_clear_region = true, bool p_begin = true, bool p_end = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
 	void _render_shadow_process();
 	void _render_shadow_end();
 
-	/* Render Scene */
+
+	/////////////////////////
+	////  Render Scene  ////
+
 	void _process_ssao(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_buffers, const Projection *p_projections);
 	void _process_ssil(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_buffers, const Projection *p_projections, const Transform3D &p_transform);
 	void _process_ssr(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_slices, const Projection *p_projections, const Vector3 *p_eye_offsets, const Transform3D &p_transform);
@@ -780,12 +861,14 @@ private:
 	void _pre_opaque_render(RenderDataRD *p_render_data, bool p_use_ssao, bool p_use_ssil, bool p_use_ssr, bool p_use_gi, const RID *p_normal_roughness_slices, RID p_voxel_gi_buffer);
 	void _process_sss(Ref<RenderSceneBuffersRD> p_render_buffers, const Projection &p_camera);
 
-	/* Debug */
+
+	// Debug Draw //
 	void _debug_draw_cluster(Ref<RenderSceneBuffersRD> p_render_buffers);
 
-protected:
-	/* setup */
 
+protected:
+
+	// Render Setup //
 	virtual RID _render_buffers_get_normal_texture(Ref<RenderSceneBuffersRD> p_render_buffers) override;
 	virtual RID _render_buffers_get_velocity_texture(Ref<RenderSceneBuffersRD> p_render_buffers) override;
 
@@ -797,8 +880,8 @@ protected:
 	virtual void sub_surface_scattering_set_quality(RSE::SubSurfaceScatteringQuality p_quality) override;
 	virtual void sub_surface_scattering_set_scale(float p_scale, float p_depth_scale) override;
 
-	/* Rendering */
 
+	// Rendering //
 	virtual void _render_scene(RenderDataRD *p_render_data, const Color &p_default_bg_color) override;
 	virtual void _render_buffers_debug_draw(const RenderDataRD *p_render_data) override;
 
@@ -807,41 +890,55 @@ protected:
 	virtual void _render_sdfgi(Ref<RenderSceneBuffersRD> p_render_buffers, const Vector3i &p_from, const Vector3i &p_size, const AABB &p_bounds, const PagedArray<RenderGeometryInstance *> &p_instances, const RID &p_albedo_texture, const RID &p_emission_texture, const RID &p_emission_aniso_texture, const RID &p_geom_facing_texture, float p_exposure_normalization) override;
 	virtual void _render_particle_collider_heightfield(RID p_fb, const Transform3D &p_cam_transform, const Projection &p_cam_projection, const PagedArray<RenderGeometryInstance *> &p_instances) override;
 
-public:
-	static RenderForwardClustered *get_singleton() { return singleton; }
 
-	ClusterBuilderSharedDataRD *get_cluster_builder_shared() { return &cluster_builder_shared; }
-	RendererRD::SSEffects *get_ss_effects() { return ss_effects; }
+public:
+
+	static
+	RenderForwardClustered *get_singleton()
+	{ return singleton; }
+
+	ClusterBuilderSharedDataRD *get_cluster_builder_shared()
+	{ return &cluster_builder_shared; }
+
+	RendererRD::SSEffects *get_ss_effects()
+	{ return ss_effects; }
 
 	/* callback from updating our lighting UBOs, used to populate cluster builder */
-	virtual void setup_added_reflection_probe(const Transform3D &p_transform, const Vector3 &p_half_size) override;
-	virtual void setup_added_light(const RSE::LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, bool p_spot_frustum, const Vector2 &p_area_size) override;
-	virtual void setup_added_decal(const Transform3D &p_transform, const Vector3 &p_half_size) override;
+	virtual
+	void setup_added_reflection_probe(const Transform3D &p_transform, const Vector3 &p_half_size) override;
+
+	virtual
+	void setup_added_light(const RSE::LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, bool p_spot_frustum, const Vector2 &p_area_size) override;
+	
+	virtual
+	void setup_added_decal(const Transform3D &p_transform, const Vector3 &p_half_size) override;
 
 	virtual void base_uniforms_changed() override;
 
-	/* SDFGI UPDATE */
 
+	// SDFGI Update //
 	virtual void sdfgi_update(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_environment, const Vector3 &p_world_position) override;
 	virtual int sdfgi_get_pending_region_count(const Ref<RenderSceneBuffers> &p_render_buffers) const override;
 	virtual AABB sdfgi_get_pending_region_bounds(const Ref<RenderSceneBuffers> &p_render_buffers, int p_region) const override;
 	virtual uint32_t sdfgi_get_pending_region_cascade(const Ref<RenderSceneBuffers> &p_render_buffers, int p_region) const override;
-	RID sdfgi_get_ubo() const { return gi.sdfgi_ubo; }
+	
+	RID sdfgi_get_ubo() const
+	{ return gi.sdfgi_ubo; }
 
-	/* GEOMETRY INSTANCE */
 
+	// Geometry Instance //
 	virtual RenderGeometryInstance *geometry_instance_create(RID p_base) override;
 	virtual void geometry_instance_free(RenderGeometryInstance *p_geometry_instance) override;
 
 	virtual uint32_t geometry_instance_get_pair_mask() override;
 
-	/* PIPELINES */
 
+	// Pipelines //
 	virtual void mesh_generate_pipelines(RID p_mesh, bool p_background_compilation) override;
 	virtual uint32_t get_pipeline_compilations(RSE::PipelineSource p_source) override;
 
-	/* SHADER LIBRARY */
 
+	// Shader Library //
 	virtual void enable_features(BitField<FeatureBits> p_feature_bits) override;
 	virtual String get_name() const override;
 
