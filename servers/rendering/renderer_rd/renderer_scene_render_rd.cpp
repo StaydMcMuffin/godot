@@ -317,33 +317,41 @@ void RendererSceneRenderRD::_process_compositor_effects(RSE::CompositorEffectCal
 	}
 }
 
-void RendererSceneRenderRD::_render_buffers_ensure_screen_texture(const RenderDataRD *p_render_data) {
+
+void RendererSceneRenderRD::_render_buffers_ensure_screen_texture
+	(
+  const	RenderDataRD *p_render_data
+	)
+{
 	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
 	ERR_FAIL_COND(rb.is_null());
 
-	if (!rb->has_internal_texture()) {
-		// We're likely rendering reflection probes where we can't use our backbuffers.
-		return;
-	}
-
-	bool can_use_storage = _render_buffers_can_be_storage();
-	Size2i size = rb->get_internal_size();
+	if (!rb->has_internal_texture())
+		return;  // We're likely rendering reflection probes where we can't use our backbuffers.
 
 	// When upscaling, the blur texture needs to be at the target size for post-processing to work. We prefer to use a
 	// dedicated backbuffer copy texture instead if the blur texture is not an option so shader effects work correctly.
-	Size2i target_size = rb->get_target_size();
-	bool internal_size_matches = (size.width == target_size.width) && (size.height == target_size.height);
-	bool reuse_blur_texture = !rb->has_upscaled_texture() || internal_size_matches;
-	if (reuse_blur_texture) {
+	const Size2i size = rb->get_internal_size();
+	const Size2i target_size = rb->get_target_size();
+	const bool can_use_storage = _render_buffers_can_be_storage();
+	const bool internal_size_matches = (size.width == target_size.width) && (size.height == target_size.height);
+	const bool reuse_blur_texture = !rb->has_upscaled_texture() || internal_size_matches;
+	
+	if (reuse_blur_texture)
 		rb->allocate_blur_textures();
-	} else {
-		if (!rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_COLOR)) {
-			uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
-			usage_bits |= can_use_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
-			// This needs to have mipmaps if any shader needs textureLod to work on screen_texture
-			uint32_t mipmaps_required = Image::get_image_required_mipmaps(size.x, size.y, Image::FORMAT_RGBAH);
-			rb->create_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_COLOR, rb->get_base_data_format(), usage_bits, RenderingDeviceCommons::TEXTURE_SAMPLES_1, { 0, 0 }, 0U, mipmaps_required);
-		}
+	else if (!rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_COLOR))
+	{
+		uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		usage_bits |= can_use_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+		
+		// This needs to have mipmaps if any shader needs textureLod to work on screen_texture.
+		uint32_t mipmaps_required = Image::get_image_required_mipmaps(size.x, size.y, Image::FORMAT_RGBAH);
+		rb->create_texture(
+				RB_SCOPE_BUFFERS, RB_TEX_BACK_COLOR,
+				rb->get_base_data_format(), usage_bits,
+				RenderingDeviceCommons::TEXTURE_SAMPLES_1,
+				{ 0, 0 }, 0U, mipmaps_required
+		);
 	}
 }
 

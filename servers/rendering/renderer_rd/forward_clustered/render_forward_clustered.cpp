@@ -572,7 +572,7 @@ void RenderForwardClustered::_render_list_template
 		}
 
 		// Copy framebuffer to screen texture if this is a screen-reading transparency.
-		// STAYD: To my knowledge this cannot be done in the middle of a draw list, so we have to end the current one, copy, then start a new one.
+		// NOTE(Stayd): To my knowledge this cannot be done in the middle of a draw list, so we have to end the current one, copy, then start a new one.
 		if constexpr (p_pass_mode == PASS_MODE_COLOR && bool(p_color_pass_flags & COLOR_PASS_FLAG_TRANSPARENT))
 		{
 			if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_SCREEN_TEXTURE)
@@ -587,29 +587,39 @@ void RenderForwardClustered::_render_list_template
 				{
 					RD::get_singleton()->draw_command_begin_label("Screen Texture Copy");
 					
-					Size2i size = rb->get_internal_size();
-					Size2i target_size = rb->get_target_size();
+					const Size2i size = rb->get_internal_size();
+					const Size2i target_size = rb->get_target_size();
 					const bool internal_size_matches = (size.width == target_size.width) && (size.height == target_size.height);
 					const bool reuse_blur_texture = !rb->has_upscaled_texture() || internal_size_matches;
 					const StringName texture_name = reuse_blur_texture ? RB_TEX_BLUR_0 : RB_TEX_BACK_COLOR;
-				
-					for (uint32_t v = 0; v < rb->get_view_count(); v++)
+					
+					const uint32_t view_count = rb->get_view_count();
+					const uint32_t mipmaps = rb->get_texture_format(RB_SCOPE_BUFFERS, texture_name).mipmaps;
+					const RID dst = rb->get_texture(RB_SCOPE_BUFFERS, texture_name);
+					for (uint32_t v = 0; v < view_count; v++)
 					{
-						// TODO: Investigate faster copy method than texture_copy(). Maybe texture_blit()?
-						RID texture = rb->get_internal_texture(v);
-						RID dest = rb->get_texture_slice(RB_SCOPE_BUFFERS, texture_name, v, 0);
-						RD::get_singleton()->texture_copy(texture, dest, Vector3(), Vector3(), Vector3(size.width, size.height, 1), 0, 0, v, v);
+						RID src = rb->get_internal_texture(v);
+						RD::get_singleton()->texture_copy(src, dst, Vector3(), Vector3(), Vector3(size.width, size.height, 1), 0, 0, v, v);
 						
-						// TODO: Measure the performance hit of generating mipmaps every copy,
-						//       and investigate only doing so when requested by the shader
-						//       (information which is not readily available at this point).
-						uint32_t mipmaps = rb->get_texture_format(RB_SCOPE_BUFFERS, texture_name).mipmaps;
+						// TODO(Stayd): Measure the performance hit of generating mipmaps every copy,
+						//              and investigate only doing so when requested by the shader
+						//              (information which is not readily available at this point).
 						for (uint32_t i = 1u; i < mipmaps; i++)
 						{
-							RID source = dest;
-							dest = rb->get_texture_slice(RB_SCOPE_BUFFERS, texture_name, v, i);
-							Size2i msize = rb->get_texture_slice_size(RB_SCOPE_BUFFERS, texture_name, i);
-							copy_effects->make_mipmap(source, dest, msize);
+							const RID mip_src = rb->get_texture_slice(RB_SCOPE_BUFFERS, texture_name, v, i-1, 1, 1);
+							const RID mip_dst = rb->get_texture_slice(RB_SCOPE_BUFFERS, texture_name, v, i, 1, 1);
+							const Size2i src_size = rb->get_texture_slice_size(RB_SCOPE_BUFFERS, texture_name, i-1);
+							const Size2i dst_size = rb->get_texture_slice_size(RB_SCOPE_BUFFERS, texture_name, i);
+							copy_effects->make_mipmap(mip_src, mip_dst, dst_size);
+
+							// TODO(Stayd): texture_blit would theoretically be faster here but I kept having issues trying to use it, so putting that off for now :V
+							/*RD::get_singleton()->texture_blit(
+									mip_src, mip_dst,
+									Vector3(), Vector3(src_size.width, src_size.height, 1),
+									Vector3(), Vector3(dst_size.width, dst_size.height, 1),
+									0, 0, v, v,
+									RD::SAMPLER_FILTER_LINEAR
+							);*/
 						}
 					}
 					RD::get_singleton()->draw_command_end_label();
@@ -1054,10 +1064,10 @@ void RenderForwardClustered::_fill_instance_data (
 		const bool cant_repeat = bool(instance_data.flags & INSTANCE_DATA_FLAG_MULTIMESH)
 		                      || bool(surface->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_SCREEN_TEXTURE)
 							  || inst->mesh_instance.is_valid();
-		if (prev_surface != nullptr && !cant_repeat
-			&& prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2
-			&& inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS
-			)
+		if (prev_surface != nullptr
+			&& !cant_repeat
+			&& surface->is_repeat_instance(prev_surface)
+			&& repeats < RenderElementInfo::MAX_REPEATS)
 		{
 			repeats++;  // This element is the same as the previous one, count repeats to draw it using instancing.
 		}
@@ -1120,7 +1130,6 @@ void RenderForwardClustered::_fill_render_list
 	)
 {
 	RendererRD::MeshStorage *mesh_storage = RendererRD::MeshStorage::get_singleton();
-	uint64_t frame = RSG::rasterizer->get_frame_number();
 
 	if (p_render_list == RENDER_LIST_OPAQUE)
 	{
@@ -1135,7 +1144,7 @@ void RenderForwardClustered::_fill_render_list
 
 	Plane near_plane = Plane(-p_render_data->scene_data->cam_transform.basis.get_column(Vector3::AXIS_Z), p_render_data->scene_data->cam_transform.origin);
 	near_plane.d += p_render_data->scene_data->cam_projection.get_z_near();
-	const float z_max = p_render_data->scene_data->cam_projection.get_z_far() - p_render_data->scene_data->cam_projection.get_z_near();
+	const real_t z_max = p_render_data->scene_data->cam_projection.get_z_far() - p_render_data->scene_data->cam_projection.get_z_near();
 
 	RenderList *rl = &render_list[p_render_list];
 	_update_dirty_geometry_instances();
@@ -1156,11 +1165,13 @@ void RenderForwardClustered::_fill_render_list
 	{
 		GeometryInstanceForwardClustered *inst = static_cast<GeometryInstanceForwardClustered *>((*p_render_data->instances)[i]);
 
-		// Determine transparency sorting distance.
+		// Determine transparency sorting distance and opaque depth layer.
 		real_t draw_depth;
+		float lod_distance = 1.0;
 		if (p_render_data->scene_data->cam_orthogonal)
 		{
 			draw_depth = near_plane.distance_to(inst->transformed_aabb.abs().get_support(-near_plane.normal));
+
 			if (inst->use_aabb_center)
 				inst->depth = draw_depth;
 			else
@@ -1168,24 +1179,34 @@ void RenderForwardClustered::_fill_render_list
 		}
 		else
 		{
-			const AABB bounds = inst->transformed_aabb.abs();
-			const Vector3 cam = p_render_data->scene_data->cam_transform.get_origin();
-			draw_depth = cam.distance_to(bounds.get_center());
+			// Get distance from the _current_ camera to the nearest point on the AABB surface, for draw sorting.
+			// NOTE: Transforming min/max points from the local AABB produces better results than using min/max of pre-transformed AABB.
+			const Vector3 cam_pos = p_render_data->scene_data->get_cam_transform().get_origin();
+			const Vector3 local_min = inst->get_transform().xform(inst->get_aabb().get_position());
+			const Vector3 local_max = inst->get_transform().xform(inst->get_aabb().get_end());
+			const Vector3 aabb_min = local_min.min(local_max);
+			const Vector3 aabb_max = local_max.max(local_min);
+			
+			Vector3 cam_to_surface = Vector3().max(aabb_min - cam_pos).max(cam_pos - aabb_max);
+			draw_depth = cam_to_surface.length();
 
 			if (inst->use_aabb_center)
-			{
-				// As a somewhat arbitrary heuristic, get the distance at (roughly) halfway between AABB center and its closest vertex.
-				float center_dist = cam.distance_squared_to(bounds.get_center());
-				float support_dist = cam.distance_squared_to(bounds.get_support(cam - bounds.get_center()));
-				//float bounds_dist = cam.distance_squared_to(CLAMP(cam, bounds.get_position(), bounds.get_end()));
-				
-				inst->depth = Math::sqrt((support_dist + center_dist) * 0.5);
-			}
+				inst->depth = draw_depth;
 			else
-				inst->depth = cam.distance_to(inst->transform.get_origin());
+				inst->depth = cam_pos.distance_to(inst->transform.get_origin());
+
+			// Get distance from the _MAIN_ camera to the nearest point on the AABB surface, to determine its LOD level.
+			// This ensures that the same LOD level is used between the main render pass and shadow passes.
+			const Vector3 main_cam_pos = p_render_data->scene_data->main_cam_transform.get_origin();
+			Vector3 main_cam_to_surface = Vector3().max(aabb_min - main_cam_pos).max(main_cam_pos - aabb_max);
+			lod_distance = main_cam_to_surface.length();
 		}
-		uint32_t depth_layer = CLAMP(int(draw_depth * 16.0 / z_max), 0, 15);
-		inst->depth -= inst->sorting_offset;
+
+		// TODO(Stayd): Test and profile non-linear distributions for draw_depth, eg. logarithmic.
+		uint32_t depth_layer = CLAMP(uint32_t((draw_depth / z_max) * 16.0), 0u, 15u);
+		//uint32_t depth_layer = CLAMP(uint32_t((Math::log(draw_depth) / Math::log(z_max)) * 16.0), 0u, 15u);
+
+		inst->depth -= inst->sorting_offset;  // Apply offset to sorting depth (only affects transparency sorting).
 
 		uint32_t flags = inst->base_flags;
 
@@ -1206,37 +1227,48 @@ void RenderForwardClustered::_fill_render_list
 		flags = (flags & ~INSTANCE_DATA_FLAGS_FADE_MASK) | (uint32_t(fade_alpha * 255.0) << INSTANCE_DATA_FLAGS_FADE_SHIFT);
 
 		bool uses_lightmap = false;
-		bool uses_gi = false;
+		bool uses_dynamic_gi = false;
 		bool uses_motion = false;
 		if (p_render_list == RENDER_LIST_OPAQUE)
 		{
 			// Setup GI
-			if (inst->lightmap_instance.is_valid()) {
-				// find index of the lightmap_instance of the instance being rendered
+			if (inst->lightmap_instance.is_valid())
+			{
+				// Using Static GI (Lightmap) //
+
+				// Find index of the lightmap_instance of the instance being rendered.
 				int32_t lightmap_cull_index = -1;
-				for (uint32_t j = 0; j < scene_state.lightmaps_used; j++) {
-					if (scene_state.lightmap_ids[j] == inst->lightmap_instance) {
+				for (uint32_t j = 0; j < scene_state.lightmaps_used; j++)
+				{
+					if (scene_state.lightmap_ids[j] == inst->lightmap_instance)
+					{
 						lightmap_cull_index = j;
 						break;
 					}
 				}
-				if (lightmap_cull_index >= 0) {
+				
+				if (lightmap_cull_index >= 0)
+				{
 					inst->gi_offset_cache = inst->lightmap_slice_index << 16;
 					inst->gi_offset_cache |= lightmap_cull_index;
 					flags |= INSTANCE_DATA_FLAG_USE_LIGHTMAP;
-					if (scene_state.lightmap_has_sh[lightmap_cull_index]) {
+					if (scene_state.lightmap_has_sh[lightmap_cull_index])
 						flags |= INSTANCE_DATA_FLAG_USE_SH_LIGHTMAP;
-					}
 					uses_lightmap = true;
-				} else {
-					inst->gi_offset_cache = 0xFFFFFFFF;
 				}
+				else
+					inst->gi_offset_cache = 0xFFFFFFFF;
+			}
+			else if (inst->lightmap_sh)
+			{
+				// Using Static GI (Probes) //
 
-			} else if (inst->lightmap_sh) {
-				if (lightmap_captures_used < scene_state.max_lightmap_captures) {
+				if (lightmap_captures_used < scene_state.max_lightmap_captures)
+				{
 					const Color *src_capture = inst->lightmap_sh->sh;
 					LightmapCaptureData &lcd = scene_state.lightmap_captures[lightmap_captures_used];
-					for (int j = 0; j < 9; j++) {
+					for (int j = 0; j < 9; j++)
+					{
 						lcd.sh[j * 4 + 0] = src_capture[j].r;
 						lcd.sh[j * 4 + 1] = src_capture[j].g;
 						lcd.sh[j * 4 + 2] = src_capture[j].b;
@@ -1247,167 +1279,187 @@ void RenderForwardClustered::_fill_render_list
 					lightmap_captures_used++;
 					uses_lightmap = true;
 				}
-
-			} else {
-				if (p_using_opaque_gi) {
+			}
+			else
+			{
+				// Using Dynamic GI //
+				
+				if (p_using_opaque_gi)
 					flags |= INSTANCE_DATA_FLAG_USE_GI_BUFFERS;
-				}
 
-				if (inst->voxel_gi_instances[0].is_valid()) {
-					uint32_t probe0_index = 0xFFFF;
-					uint32_t probe1_index = 0xFFFF;
-
-					for (uint32_t j = 0; j < scene_state.voxelgis_used; j++) {
-						if (scene_state.voxelgi_ids[j] == inst->voxel_gi_instances[0]) {
+				if (inst->voxel_gi_instances[0].is_valid())
+				{
+					uint32_t probe0_index = 0xFFFF, probe1_index = 0xFFFF;
+					for (uint32_t j = 0; j < scene_state.voxelgis_used; j++)
+					{
+						if (scene_state.voxelgi_ids[j] == inst->voxel_gi_instances[0])
 							probe0_index = j;
-						} else if (scene_state.voxelgi_ids[j] == inst->voxel_gi_instances[1]) {
+						else if (scene_state.voxelgi_ids[j] == inst->voxel_gi_instances[1])
 							probe1_index = j;
-						}
 					}
-
-					if (probe0_index == 0xFFFF && probe1_index != 0xFFFF) {
-						//0 must always exist if a probe exists
-						SWAP(probe0_index, probe1_index);
-					}
+					if (probe0_index == 0xFFFF && probe1_index != 0xFFFF)
+						SWAP(probe0_index, probe1_index);  // If only one probe exists, it must be probe0.
 
 					inst->gi_offset_cache = probe0_index | (probe1_index << 16);
 					flags |= INSTANCE_DATA_FLAG_USE_VOXEL_GI;
-					uses_gi = true;
-				} else {
-					if (p_using_sdfgi && inst->can_sdfgi) {
+					uses_dynamic_gi = true;
+				}
+				else
+				{
+					if (p_using_sdfgi && inst->can_sdfgi)
+					{
 						flags |= INSTANCE_DATA_FLAG_USE_SDFGI;
-						uses_gi = true;
+						uses_dynamic_gi = true;
 					}
 					inst->gi_offset_cache = 0xFFFFFFFF;
 				}
 			}
-			if (p_pass_mode == PASS_MODE_DEPTH_NORMAL_ROUGHNESS || p_pass_mode == PASS_MODE_DEPTH_NORMAL_ROUGHNESS_VOXEL_GI || p_pass_mode == PASS_MODE_COLOR) {
-				bool transform_changed = inst->transform_status == GeometryInstanceForwardClustered::TransformStatus::MOVED;
-				bool has_mesh_instance = inst->mesh_instance.is_valid();
-				bool uses_particles = inst->base_flags & INSTANCE_DATA_FLAG_PARTICLES;
-				bool is_multimesh_with_motion = !uses_particles && (inst->base_flags & INSTANCE_DATA_FLAG_MULTIMESH) && mesh_storage->_multimesh_uses_motion_vectors_offsets(inst->data->base);
-				bool is_dynamic = transform_changed || has_mesh_instance || uses_particles || is_multimesh_with_motion;
-				if (p_pass_mode == PASS_MODE_COLOR && p_using_motion_pass) {
+
+			if (p_pass_mode == PASS_MODE_DEPTH_NORMAL_ROUGHNESS || p_pass_mode == PASS_MODE_DEPTH_NORMAL_ROUGHNESS_VOXEL_GI || p_pass_mode == PASS_MODE_COLOR)
+			{
+				const bool transform_changed = inst->transform_status == GeometryInstanceForwardClustered::TransformStatus::MOVED;
+				const bool has_mesh_instance = inst->mesh_instance.is_valid();
+				const bool uses_particles = inst->base_flags & INSTANCE_DATA_FLAG_PARTICLES;
+				const bool is_multimesh_with_motion = !uses_particles && (inst->base_flags & INSTANCE_DATA_FLAG_MULTIMESH) && mesh_storage->_multimesh_uses_motion_vectors_offsets(inst->data->base);
+				const bool is_dynamic = transform_changed || has_mesh_instance || uses_particles || is_multimesh_with_motion;
+				if (p_pass_mode == PASS_MODE_COLOR && p_using_motion_pass)
 					uses_motion = is_dynamic;
-				} else if (is_dynamic) {
+				else if (is_dynamic)
 					flags |= INSTANCE_DATA_FLAGS_DYNAMIC;
-				}
 			}
 		}
 		inst->flags_cache = flags;
 
-		GeometryInstanceSurfaceDataCache *surf = inst->surface_caches;
-
-		float lod_distance = 0.0;
-
-		if (p_render_data->scene_data->cam_orthogonal) {
-			lod_distance = 1.0;
-		} else {
-			Vector3 aabb_min = inst->transformed_aabb.position;
-			Vector3 aabb_max = inst->transformed_aabb.position + inst->transformed_aabb.size;
-			Vector3 camera_position = p_render_data->scene_data->main_cam_transform.origin;
-			Vector3 surface_distance = Vector3(0.0, 0.0, 0.0).max(aabb_min - camera_position).max(camera_position - aabb_max);
-
-			lod_distance = surface_distance.length();
-		}
-
-		if (unlikely(inst->transform_status != GeometryInstanceForwardClustered::TransformStatus::NONE && frame > inst->prev_transform_change_frame && inst->prev_transform_change_frame)) {
+		// If this instance has been moved and its previous-frame transform has yet to be updated, do so now.
+		// TODO(Stayd): Should prev_transform_change_frame be updated here? If not, why?
+		const uint64_t frame = RSG::rasterizer->get_frame_number();
+		if (unlikely(
+				inst->transform_status != GeometryInstanceForwardClustered::TransformStatus::NONE
+				&& frame > inst->prev_transform_change_frame
+				&& inst->prev_transform_change_frame)
+			)
+		{
 			inst->prev_transform = inst->transform;
 			inst->transform_status = GeometryInstanceForwardClustered::TransformStatus::NONE;
 		}
 
-		while (surf) {
+		GeometryInstanceSurfaceDataCache *surf = inst->surface_caches;
+		while (surf)
+		{
 			surf->sort.uses_forward_gi = 0;
 			surf->sort.uses_lightmap = 0;
 
-			// LOD
-			if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface)) {
+			// Get LOD index and add primitives to counter.
+			if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface))
+			{
 				uint32_t indices = 0;
-				surf->sort.lod_index = mesh_storage->mesh_surface_get_lod(surf->surface, inst->lod_model_scale * inst->lod_bias, lod_distance * p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, indices);
-				if (p_render_data->render_info) {
+				surf->sort.lod_index = mesh_storage->mesh_surface_get_lod(
+						surf->surface,
+						inst->lod_model_scale * inst->lod_bias,
+						lod_distance * p_render_data->scene_data->lod_distance_multiplier,
+						p_render_data->scene_data->screen_mesh_lod_threshold,
+						indices
+				);
+				if (p_render_data->render_info)
+				{
 					indices = _indices_to_primitives(surf->primitive, indices);
-					if (p_render_list == RENDER_LIST_OPAQUE) { //opaque
+					if (p_render_list == RENDER_LIST_OPAQUE)
 						p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE][RSE::VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME] += indices;
-					} else if (p_render_list == RENDER_LIST_SECONDARY) { //shadow
+					else if (p_render_list == RENDER_LIST_SECONDARY)
 						p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW][RSE::VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME] += indices;
-					}
 				}
-			} else {
+			}
+			else
+			{
 				surf->sort.lod_index = 0;
-				if (p_render_data->render_info) {
+				if (p_render_data->render_info)
+				{
 					// This does not include primitives rendered via indirect draw calls.
 					uint32_t to_draw = mesh_storage->mesh_surface_get_vertices_drawn_count(surf->surface);
 					to_draw = _indices_to_primitives(surf->primitive, to_draw);
 					to_draw *= inst->instance_count;
-					if (p_render_list == RENDER_LIST_OPAQUE) { //opaque
+					if (p_render_list == RENDER_LIST_OPAQUE)
 						p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE][RSE::VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME] += to_draw;
-					} else if (p_render_list == RENDER_LIST_SECONDARY) { //shadow
+					else if (p_render_list == RENDER_LIST_SECONDARY)
 						p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW][RSE::VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME] += to_draw;
-					}
 				}
 			}
 
-			// ADD Element
-			if (p_pass_mode == PASS_MODE_COLOR) {
+			// Add element to current render list.
+			// If this is the COLOR pass, elements are also added to the ALPHA and MOTION lists as-needed.
+			if (p_pass_mode == PASS_MODE_COLOR)
+			{
 #ifdef DEBUG_ENABLED
 				bool force_alpha = unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW);
 #else
 				bool force_alpha = false;
-#endif
+#endif // DEBUG_ENABLED
 
-				if (fade_alpha < FADE_ALPHA_PASS_THRESHOLD) {
+				if (fade_alpha < FADE_ALPHA_PASS_THRESHOLD)
 					force_alpha = true;
-				}
 
-				if (!force_alpha && (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE))) {
+				if (!force_alpha && (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH
+												  | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE)))
+				{
 					rl->add_element(surf);
 				}
 
-				if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
+				if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA))
+				{
 					surf->color_pass_inclusion_mask = COLOR_PASS_FLAG_TRANSPARENT;
 					render_list[RENDER_LIST_ALPHA].add_element(surf);
-					if (uses_gi) {
+					if (uses_dynamic_gi)
 						surf->sort.uses_forward_gi = 1;
-					}
-				} else if (p_using_motion_pass && (uses_motion || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_MOTION_VECTOR))) {
+
+				}
+				else if (p_using_motion_pass
+					&& (uses_motion || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_MOTION_VECTOR)))
+				{
 					surf->color_pass_inclusion_mask = COLOR_PASS_FLAG_MOTION_VECTORS;
 					render_list[RENDER_LIST_MOTION].add_element(surf);
-				} else {
+				}
+				else
+				{
 					surf->color_pass_inclusion_mask = 0;
 				}
 
-				if (uses_lightmap) {
+				if (uses_lightmap)
+				{
 					surf->sort.uses_lightmap = 1;
 					scene_state.used_lightmap = true;
 				}
 
-				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_SUBSURFACE_SCATTERING) {
+				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_SUBSURFACE_SCATTERING)
 					scene_state.used_sss = true;
-				}
-				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_SCREEN_TEXTURE) {
+				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_SCREEN_TEXTURE)
 					scene_state.used_screen_texture = true;
-				}
-				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_NORMAL_TEXTURE) {
+				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_NORMAL_TEXTURE)
 					scene_state.used_normal_texture = true;
-				}
-				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DEPTH_TEXTURE) {
+				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DEPTH_TEXTURE)
 					scene_state.used_depth_texture = true;
-				}
-				if ((surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_STENCIL) && !force_alpha && (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE))) {
+				if (!force_alpha 
+					&& (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_STENCIL)
+					&& (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH
+									| GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE)))
 					scene_state.used_opaque_stencil = true;
-				}
-			} else if (p_pass_mode == PASS_MODE_SHADOW || p_pass_mode == PASS_MODE_SHADOW_DP) {
-				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_SHADOW) {
+			}
+			else if (p_pass_mode == PASS_MODE_SHADOW || p_pass_mode == PASS_MODE_SHADOW_DP)
+			{
+				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_SHADOW)
 					rl->add_element(surf);
-				}
-			} else if (p_pass_mode == PASS_MODE_DEPTH_MATERIAL) {
-				if (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE | GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
+			}
+			else if (p_pass_mode == PASS_MODE_DEPTH_MATERIAL)
+			{
+				if (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH
+								| GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE
+								| GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA))
 					rl->add_element(surf);
-				}
-			} else {
-				if (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE)) {
+			}
+			else
+			{
+				if (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH
+								| GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE))
 					rl->add_element(surf);
-				}
 			}
 
 			surf->sort.depth_layer = depth_layer;
@@ -1416,10 +1468,10 @@ void RenderForwardClustered::_fill_render_list
 		}
 	}
 
-	if (p_render_list == RENDER_LIST_OPAQUE && lightmap_captures_used) {
+	if (p_render_list == RENDER_LIST_OPAQUE && lightmap_captures_used)
 		RD::get_singleton()->buffer_update(scene_state.lightmap_capture_buffer, 0, sizeof(LightmapCaptureData) * lightmap_captures_used, scene_state.lightmap_captures);
-	}
 }
+
 
 void RenderForwardClustered::_setup_voxelgis(const PagedArray<RID> &p_voxelgis) {
 	scene_state.voxelgis_used = MIN(p_voxelgis.size(), uint32_t(MAX_VOXEL_GI_INSTANCESS));
@@ -5180,18 +5232,29 @@ RenderGeometryInstance *RenderForwardClustered::geometry_instance_create(RID p_b
 	return ginstance;
 }
 
-void RenderForwardClustered::GeometryInstanceForwardClustered::set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) {
-	uint64_t frame = RSG::rasterizer->get_frame_number();
-	if (frame != prev_transform_change_frame) {
+
+void RenderForwardClustered::GeometryInstanceForwardClustered::set_transform
+	(
+  const Transform3D &p_transform,
+  const AABB &p_aabb,
+  const AABB &p_transformed_aabb
+	)
+{
+	const uint64_t frame = RSG::rasterizer->get_frame_number();
+	if (frame != prev_transform_change_frame)
+	{
 		prev_transform = transform;
 		prev_transform_change_frame = frame;
 		transform_status = TransformStatus::MOVED;
-	} else if (unlikely(transform_status == TransformStatus::TELEPORTED)) {
+	}
+	else if (unlikely(transform_status == TransformStatus::TELEPORTED))
+	{
 		prev_transform = transform;
 	}
 
 	RenderGeometryInstanceBase::set_transform(p_transform, p_aabb, p_transformed_aabb);
 }
+
 
 void RenderForwardClustered::GeometryInstanceForwardClustered::reset_motion_vectors() {
 	prev_transform = transform;

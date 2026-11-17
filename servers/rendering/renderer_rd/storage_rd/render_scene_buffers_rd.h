@@ -224,7 +224,7 @@ public:
 
 	void clear_context(const StringName &p_context);
 
-	// Allocate shared buffers
+	/** Allocate shared buffers used for blur effects. */
 	void allocate_blur_textures();
 
 	// Custom data

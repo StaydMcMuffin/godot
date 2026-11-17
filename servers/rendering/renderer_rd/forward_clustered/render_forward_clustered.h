@@ -592,6 +592,21 @@ private:
 			};
 		} sort;
 
+		// `depth_layer` and `priority` are masked out of the sort key when checked for auto-instancing, as they should only affect draw sorting, not instancing.
+		static constexpr uint64_t inst_mask_1 = 0xFFF0FFFFFFFFFFFFu;
+		static constexpr uint64_t inst_mask_2 = 0xFFFFFFFFFFFFFF00u;
+		
+		/** Return whether this surface is a repeat of \p p_prev_surface , and as such is a candidate for automatic instancing. */
+		_FORCE_INLINE_
+		bool is_repeat_instance (
+		  const	GeometryInstanceSurfaceDataCache *p_prev_surface
+			) const
+		{
+			return (sort.sort_key1 & inst_mask_1) == (p_prev_surface->sort.sort_key1 & inst_mask_1)
+			    && (sort.sort_key2 & inst_mask_2) == (p_prev_surface->sort.sort_key2 & inst_mask_2)
+				&& owner->mirror == p_prev_surface->owner->mirror;
+		}
+
 		RSE::PrimitiveType primitive = RSE::PRIMITIVE_MAX;
 		uint32_t flags = 0;
 		uint32_t surface_index = 0;
@@ -757,6 +772,7 @@ private:
 			element_info.clear();
 		}
 		// TODO: Sorting is currently done with introsort, should eventually be replaced with radix.
+		//       Also, investigate using alternate sort_key ordering for prepass and shadow pass.
 
 		// Full Scene Key Sort //
 		struct SortByKey
@@ -779,6 +795,7 @@ private:
 		}
 
 		// Pure Depth Sort (for shadow pass) //
+		// NOTE(Stayd): uh this isn't actually used for the shadow pass right now, sort_by_key_range() is :V
 		struct SortByDepth
 		{
 			_FORCE_INLINE_

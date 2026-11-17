@@ -493,7 +493,7 @@ public:
 			uint32_t p_dst_mipmap,
 			uint32_t p_src_layer,
 			uint32_t p_dst_layer,
-			SamplerFilter p_filter
+			SamplerFilter p_filter = SAMPLER_FILTER_LINEAR
 	);
 
 	void texture_set_discardable(RID p_texture, bool p_discardable);
