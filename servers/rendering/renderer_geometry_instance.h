@@ -36,8 +36,10 @@
 #include "core/templates/rid.h"
 #include "servers/rendering/storage/utilities.h"
 
-// API definition for our RenderGeometryInstance class so we can expose this through GDExtension in the near future
-class RenderGeometryInstance {
+
+/** API definition for our RenderGeometryInstance class so we can expose this through GDExtension in the near future. */
+class RenderGeometryInstance
+{
 public:
 	virtual ~RenderGeometryInstance() {}
 
@@ -76,15 +78,18 @@ public:
 	virtual void set_softshadow_projector_pairing(bool p_softshadow, bool p_projector) = 0;
 };
 
-// Base implementation of RenderGeometryInstance shared by internal renderers.
-class RenderGeometryInstanceBase : public RenderGeometryInstance {
+
+/** Base implementation of RenderGeometryInstance shared by internal renderers. */
+class RenderGeometryInstanceBase : public RenderGeometryInstance
+{
 public:
-	// setup
+	// Setup //
 	uint32_t base_flags = 0;
 	uint32_t flags_cache = 0;
 
-	// used during rendering
-	float depth = 0;
+	// Used During Rendering //
+	real_t depth = 0.0;  /**< Primary transparency sorting depth, stores distance to closest point on AABB surface. */
+	real_t depth2 = 0.0;  /**< Secondary transparency sorting depth, stores distance to AABB center. */
 
 	RID mesh_instance;
 
@@ -111,8 +116,9 @@ public:
 
 	int32_t shader_uniforms_offset = -1;
 
-	struct Data {
-		//data used less often goes into regular heap
+	// Data used less often goes into regular heap.
+	struct Data
+	{
 		RID base;
 		RSE::InstanceType base_type;
 
@@ -129,28 +135,105 @@ public:
 
 		DependencyTracker dependency_tracker;
 	};
-
 	Data *data = nullptr;
 
-	virtual void set_skeleton(RID p_skeleton) override;
-	virtual void set_material_override(RID p_override) override;
-	virtual void set_material_overlay(RID p_overlay) override;
-	virtual void set_surface_materials(const Vector<RID> &p_materials) override;
-	virtual void set_mesh_instance(RID p_mesh_instance) override;
-	virtual void set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) override;
-	virtual void set_pivot_data(float p_sorting_offset, bool p_use_aabb_center) override;
-	virtual void set_lod_bias(float p_lod_bias) override;
-	virtual void set_layer_mask(uint32_t p_layer_mask) override;
-	virtual void set_fade_range(bool p_enable_near, float p_near_begin, float p_near_end, bool p_enable_far, float p_far_begin, float p_far_end) override;
-	virtual void set_parent_fade_alpha(float p_alpha) override;
-	virtual void set_transparency(float p_transparency) override;
-	virtual void set_use_baked_light(bool p_enable) override;
-	virtual void set_use_dynamic_gi(bool p_enable) override;
-	virtual void set_instance_shader_uniforms_offset(int32_t p_offset) override;
-	virtual void set_cast_double_sided_shadows(bool p_enable) override;
+	virtual
+	void set_skeleton(
+			RID p_skeleton
+	) override;
+	
+	virtual
+	void set_material_override(
+			RID p_override
+	) override;
+	
+	virtual
+	void set_material_overlay(
+			RID p_overlay
+	) override;
+	
+	virtual
+	void set_surface_materials(
+	  const	Vector<RID> &p_materials
+	) override;
+	
+	virtual
+	void set_mesh_instance(
+			RID p_mesh_instance
+	) override;
+	
+	virtual
+	void set_transform(
+	  const	Transform3D &p_transform,
+	  const	AABB &p_aabb,
+	  const	AABB &p_transformed_aabb
+	) override;
+	
+	virtual
+	void set_pivot_data(
+			float p_sorting_offset,
+			bool p_use_aabb_center
+	) override;
+	
+	virtual
+	void set_lod_bias(
+			float p_lod_bias
+	) override;
+	
+	virtual
+	void set_layer_mask(
+			uint32_t p_layer_mask
+	) override;
+	
+	virtual
+	void set_fade_range(
+			bool p_enable_near,
+			float p_near_begin,
+			float p_near_end,
+			bool p_enable_far,
+			float p_far_begin,
+			float p_far_end
+	) override;
+	
+	virtual
+	void set_parent_fade_alpha(
+			float p_alpha
+	) override;
+	
+	virtual
+	void set_transparency(
+			float p_transparency
+	) override;
+	
+	virtual
+	void set_use_baked_light(
+			bool p_enable
+	) override;
+	
+	virtual
+	void set_use_dynamic_gi(
+			bool p_enable
+	) override;
+	
+	virtual
+	void set_instance_shader_uniforms_offset(
+			int32_t p_offset
+	) override;
+	
+	virtual
+	void set_cast_double_sided_shadows(
+			bool p_enable
+	) override;
 
-	virtual void reset_motion_vectors() override;
+	virtual
+	void reset_motion_vectors(
+	) override;
 
-	virtual Transform3D get_transform() override;
-	virtual AABB get_aabb() override;
+	virtual
+	Transform3D get_transform(
+	) override;
+
+	virtual
+	AABB get_aabb(
+	) override;
 };

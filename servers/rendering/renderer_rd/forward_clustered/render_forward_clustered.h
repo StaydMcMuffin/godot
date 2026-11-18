@@ -801,7 +801,8 @@ private:
 			_FORCE_INLINE_
 			bool operator() (const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const
 			{
-				return (A->owner->depth < B->owner->depth);
+				// NOTE: `depth` goes to 0 when the camera is inside the AABB, in which case we sort against `depth2` (the AABB center).
+				return (A->owner->depth ==  B->owner->depth) ? (A->owner->depth2 < B->owner->depth2) : (A->owner->depth < B->owner->depth);
 			}
 		};
 		void sort_by_depth()
@@ -816,7 +817,10 @@ private:
 			_FORCE_INLINE_
 			bool operator() (const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const
 			{
-				return (A->sort.priority == B->sort.priority) ? (A->owner->depth > B->owner->depth) : (A->sort.priority < B->sort.priority);
+				// NOTE: `depth` goes to 0 when the camera is inside the AABB, in which case we sort against `depth2` (the AABB center).
+				return (A->sort.priority == B->sort.priority)
+						? ((A->owner->depth ==  B->owner->depth) ? (A->owner->depth2 > B->owner->depth2) : (A->owner->depth > B->owner->depth))
+						: (A->sort.priority < B->sort.priority);
 			}
 		};
 		void sort_by_reverse_depth_and_priority()

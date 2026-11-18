@@ -1173,32 +1173,37 @@ void RenderForwardClustered::_fill_render_list
 			draw_depth = near_plane.distance_to(inst->transformed_aabb.abs().get_support(-near_plane.normal));
 
 			if (inst->use_aabb_center)
-				inst->depth = draw_depth;
+				inst->depth = inst->depth2 = draw_depth;
 			else
-				inst->depth = near_plane.distance_to(inst->transform.get_origin());
+				inst->depth = inst->depth2 = near_plane.distance_to(inst->transform.get_origin());
 		}
 		else
 		{
 			// Get distance from the _current_ camera to the nearest point on the AABB surface, for draw sorting.
-			// NOTE: Transforming min/max points from the local AABB produces better results than using min/max of pre-transformed AABB.
-			const Vector3 cam_pos = p_render_data->scene_data->get_cam_transform().get_origin();
-			const Vector3 local_min = inst->get_transform().xform(inst->get_aabb().get_position());
-			const Vector3 local_max = inst->get_transform().xform(inst->get_aabb().get_end());
-			const Vector3 aabb_min = local_min.min(local_max);
-			const Vector3 aabb_max = local_max.max(local_min);
+			// NOTE: Rotating an AABB is a destructive operation that greatly decreases its accuracy.
+			//       We can avoid this by instead transforming the camera's position into the instance's local space,
+			//       thus preserving the AABB's accuracy and greatly improving sorting in non-axis-aligned cases.
+			const Transform3D inst_transform_inv = inst->get_transform().affine_inverse();
+			const Vector3 inst_transform_scale = inst->get_transform().get_basis().get_scale_abs();
+			const Vector3 cam_pos = inst_transform_inv.xform(p_render_data->scene_data->get_cam_transform().get_origin());
+			const Vector3 aabb_min = inst->get_aabb().get_position();
+			const Vector3 aabb_max = inst->get_aabb().get_end();
 			
-			Vector3 cam_to_surface = Vector3().max(aabb_min - cam_pos).max(cam_pos - aabb_max);
+			Vector3 cam_to_surface = Vector3().max(aabb_min - cam_pos).max(cam_pos - aabb_max) * inst_transform_scale;
 			draw_depth = cam_to_surface.length();
 
 			if (inst->use_aabb_center)
+			{
 				inst->depth = draw_depth;
+				inst->depth2 = cam_pos.distance_to(inst->get_aabb().get_center());  // `depth2` is a fallback for when `depth` reaches 0.
+			}
 			else
-				inst->depth = cam_pos.distance_to(inst->transform.get_origin());
+				inst->depth = inst->depth2 = cam_pos.distance_to(inst->transform.get_origin());
 
 			// Get distance from the _MAIN_ camera to the nearest point on the AABB surface, to determine its LOD level.
 			// This ensures that the same LOD level is used between the main render pass and shadow passes.
-			const Vector3 main_cam_pos = p_render_data->scene_data->main_cam_transform.get_origin();
-			Vector3 main_cam_to_surface = Vector3().max(aabb_min - main_cam_pos).max(main_cam_pos - aabb_max);
+			const Vector3 main_cam_pos = inst_transform_inv.xform(p_render_data->scene_data->main_cam_transform.get_origin());
+			Vector3 main_cam_to_surface = Vector3().max(aabb_min - main_cam_pos).max(main_cam_pos - aabb_max) * inst_transform_scale;
 			lod_distance = main_cam_to_surface.length();
 		}
 
@@ -1206,7 +1211,9 @@ void RenderForwardClustered::_fill_render_list
 		uint32_t depth_layer = CLAMP(uint32_t((draw_depth / z_max) * 16.0), 0u, 15u);
 		//uint32_t depth_layer = CLAMP(uint32_t((Math::log(draw_depth) / Math::log(z_max)) * 16.0), 0u, 15u);
 
-		inst->depth -= inst->sorting_offset;  // Apply offset to sorting depth (only affects transparency sorting).
+		// Apply offset to sorting depths (only affects transparency sorting).
+		inst->depth -= inst->sorting_offset;
+		inst->depth2 -= inst->sorting_offset;
 
 		uint32_t flags = inst->base_flags;
 
