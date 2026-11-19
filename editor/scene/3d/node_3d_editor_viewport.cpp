@@ -3541,7 +3541,7 @@ void Node3DEditorViewport::_notification(int p_what) {
 				}
 			}
 
-			real_t delta = get_process_delta_time();
+			const real_t delta = get_process_delta_time();
 
 			if (zoom_indicator_delay > 0) {
 				zoom_indicator_delay -= delta;
@@ -3672,97 +3672,137 @@ void Node3DEditorViewport::_notification(int p_what) {
 				}
 			}
 
-			bool show_info = view_display_menu->get_popup()->is_item_checked(view_display_menu->get_popup()->get_item_index(VIEW_INFORMATION));
-			if (show_info != info_panel->is_visible()) {
+			// Information Panel //
+			const bool show_info = view_display_menu->get_popup()->is_item_checked(view_display_menu->get_popup()->get_item_index(VIEW_INFORMATION));
+			if (show_info != info_panel->is_visible())
 				info_panel->set_visible(show_info);
-			}
+			if (show_info)
+			{
+				Camera3D *current_camera;
+				if (previewing)
+					current_camera = previewing;
+				else
+					current_camera = camera;
 
-			Camera3D *current_camera;
-
-			if (previewing) {
-				current_camera = previewing;
-			} else {
-				current_camera = camera;
-			}
-
-			if (show_info) {
 				const String viewport_size = vformat(U"%d × %d", viewport->get_size().x * viewport->get_scaling_3d_scale(), viewport->get_size().y * viewport->get_scaling_3d_scale());
+				
 				String text;
-				text += vformat(TTR("X: %s"), rtos(current_camera->get_position().x).pad_decimals(1)) + "\n";
-				text += vformat(TTR("Y: %s"), rtos(current_camera->get_position().y).pad_decimals(1)) + "\n";
-				text += vformat(TTR("Z: %s"), rtos(current_camera->get_position().z).pad_decimals(1)) + "\n";
-				text += "\n";
+				text += TTR("-     View Position     -\n");
 				text += vformat(
-						TTR("Size: %s (%.1fMP)") + "\n",
-						viewport_size,
-						viewport->get_size().x * viewport->get_size().y * Math::pow(viewport->get_scaling_3d_scale(), 2) * 0.000001);
+						TTR("( %s, %s, %s )"),
+						rtos(current_camera->get_position().x).pad_decimals(1),
+						rtos(current_camera->get_position().y).pad_decimals(1),
+						rtos(current_camera->get_position().z).pad_decimals(1)
+				) + "\n";
+				text += TTR("-     View Rotation     -\n");
+				text += vformat(
+						TTR("( %s, %s, %s )"),
+						rtos(current_camera->get_rotation_degrees().x).pad_decimals(1),
+						rtos(current_camera->get_rotation_degrees().y).pad_decimals(1),
+						rtos(current_camera->get_rotation_degrees().z).pad_decimals(1)
+				) + "\n";
 
 				text += "\n";
-				text += vformat(TTR("Objects: %d"), viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_OBJECTS_IN_FRAME)) + "\n";
-				text += vformat(TTR("Primitives: %d"), viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_PRIMITIVES_IN_FRAME)) + "\n";
-				text += vformat(TTR("Draw Calls: %d"), viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_DRAW_CALLS_IN_FRAME));
-
+				text += TTR("-       Rendering       -\n");
+				text += vformat(
+						TTR("Pixels: %s (%.1fMP)") + "\n",
+						viewport_size,
+						viewport->get_size().x * viewport->get_size().y * Math::pow(viewport->get_scaling_3d_scale(), 2) * 0.000001
+				);
+				text += vformat(
+						TTR("Objects: %d"),
+						viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_OBJECTS_IN_FRAME)
+				) + "\n";
+				text += vformat(
+						TTR("Primitives: %d"),
+						viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_PRIMITIVES_IN_FRAME)
+				) + "\n";
+				text += vformat(
+						TTR("Draw Calls: %d"),
+						viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_DRAW_CALLS_IN_FRAME)
+				);
 				info_label->set_text(text);
 			}
 
-			// FPS Counter.
-			bool show_fps = view_display_menu->get_popup()->is_item_checked(view_display_menu->get_popup()->get_item_index(VIEW_FRAME_TIME));
-
-			if (show_fps != frame_time_panel->is_visible()) {
+			// Performance Panel //
+			const bool show_fps = view_display_menu->get_popup()->is_item_checked(view_display_menu->get_popup()->get_item_index(VIEW_FRAME_TIME));
+			if (show_fps != frame_time_panel->is_visible())
+			{
 				frame_time_panel->set_visible(show_fps);
 				RS::get_singleton()->viewport_set_measure_render_time(viewport->get_viewport_rid(), show_fps);
-				for (int i = 0; i < FRAME_TIME_HISTORY; i++) {
+				for (int i = 0; i < FRAME_TIME_HISTORY; i++)
+				{
 					// Initialize to 120 FPS, so that the initial estimation until we get enough data is always reasonable.
 					cpu_time_history[i] = 8.333333;
 					gpu_time_history[i] = 8.333333;
 				}
-				cpu_time_history_index = 0;
-				gpu_time_history_index = 0;
+				time_history_index = 0;
+				rollover_timer = 0.0;
 			}
-			if (show_fps) {
-				cpu_time_history[cpu_time_history_index] = RS::get_singleton()->viewport_get_measured_render_time_cpu(viewport->get_viewport_rid());
-				cpu_time_history_index = (cpu_time_history_index + 1) % FRAME_TIME_HISTORY;
-				double cpu_time = 0.0;
-				for (int i = 0; i < FRAME_TIME_HISTORY; i++) {
-					cpu_time += cpu_time_history[i];
+			if (show_fps)
+			{
+				cpu_time_history[time_history_index] = RS::get_singleton()->viewport_get_measured_render_time_cpu(viewport->get_viewport_rid());
+				gpu_time_history[time_history_index] = RS::get_singleton()->viewport_get_measured_render_time_gpu(viewport->get_viewport_rid());
+				time_history_index = (time_history_index + 1) % FRAME_TIME_HISTORY;
+				
+				const bool time_rollover = rollover_timer >= FRAME_TIME_ROLLOVER_SECS;
+				rollover_timer += delta;
+
+				// CPU Timing //
+				double cpu_avg = 0.0;
+				for (int i = 0; i < FRAME_TIME_HISTORY; i++)
+				{
+					cpu_avg += cpu_time_history[i];
 				}
-				cpu_time /= FRAME_TIME_HISTORY;
-				// Prevent unrealistically low values.
-				cpu_time = MAX(0.01, cpu_time);
+				cpu_avg /= FRAME_TIME_HISTORY;
+				cpu_avg = MAX(0.01, cpu_avg);  // Prevent unrealistically low values.
 
-				gpu_time_history[gpu_time_history_index] = RS::get_singleton()->viewport_get_measured_render_time_gpu(viewport->get_viewport_rid());
-				gpu_time_history_index = (gpu_time_history_index + 1) % FRAME_TIME_HISTORY;
-				double gpu_time = 0.0;
-				for (int i = 0; i < FRAME_TIME_HISTORY; i++) {
-					gpu_time += gpu_time_history[i];
+				// GPU Timings //
+				double gpu_avg = 0.0, gpu_min = 100000.0, gpu_max = 0.0;
+				for (int i = 0; i < FRAME_TIME_HISTORY; i++)
+				{
+					gpu_avg += gpu_time_history[i];
+					gpu_min = MIN(gpu_min, gpu_time_history[i]);
+					gpu_max = MAX(gpu_max, gpu_time_history[i]);
 				}
-				gpu_time /= FRAME_TIME_HISTORY;
-				// Prevent division by zero for the FPS counter (and unrealistically low values).
-				// This limits the reported FPS to 100000.
-				gpu_time = MAX(0.01, gpu_time);
+				gpu_avg /= FRAME_TIME_HISTORY;
+				gpu_avg = MAX(0.01, gpu_avg);  // Prevent division by zero and unrealistically low values (this also limits the reported FPS to 100000).
 
-				// Color labels depending on performance level ("good" = green, "OK" = yellow, "bad" = red).
-				// Middle point is at 15 ms.
-				cpu_time_label->set_text(vformat(TTR("CPU Time: %s ms"), rtos(cpu_time).pad_decimals(2)));
-				cpu_time_label->add_theme_color_override(
-						SceneStringName(font_color),
-						frame_time_gradient->get_color_at_offset(
-								Math::remap(cpu_time, 0, 30, 0, 1)));
+				// Update Labels //
+				if (time_rollover)
+				{
+					rollover_timer = 0.0;
 
-				gpu_time_label->set_text(vformat(TTR("GPU Time: %s ms"), rtos(gpu_time).pad_decimals(2)));
-				// Middle point is at 15 ms.
-				gpu_time_label->add_theme_color_override(
-						SceneStringName(font_color),
-						frame_time_gradient->get_color_at_offset(
-								Math::remap(gpu_time, 0, 30, 0, 1)));
+					// Color labels depending on performance level ("good" = green, "OK" = yellow, "bad" = red).
+					cpu_time_label->set_text(vformat(
+							TTR("Avg: %s ms"),
+							rtos(cpu_avg).pad_decimals(2)
+					));
+					cpu_time_label->add_theme_color_override(
+							SceneStringName(font_color),
+							frame_time_gradient->get_color_at_offset(
+									Math::remap(cpu_avg, 0, 30, 0, 1)  // Middle point is at 15 ms.
+							)
+					);
 
-				const double fps = 1000.0 / gpu_time;
-				fps_label->set_text(vformat(TTR("FPS: %d"), fps));
-				// Middle point is at 60 FPS.
-				fps_label->add_theme_color_override(
-						SceneStringName(font_color),
-						frame_time_gradient->get_color_at_offset(
-								Math::remap(fps, 110, 10, 0, 1)));
+					gpu_time_label->set_text(vformat(
+							TTR("Avg: %s ms\nMin: %s ms\nMax: %s ms"),
+							rtos(gpu_avg).pad_decimals(2),
+							rtos(gpu_min).pad_decimals(2),
+							rtos(gpu_max).pad_decimals(2)
+					));
+					gpu_time_label->add_theme_color_override(
+							SceneStringName(font_color), frame_time_gradient->get_color_at_offset(
+									Math::remap(gpu_avg, 8.333, 33.333, 0, 1)  // Range 120-30 FPS.
+							)
+					);
+
+					const double fps = 1000.0 / MAX(cpu_avg, gpu_avg);
+					frame_time_label->set_text(vformat(
+							TTR("%d FPS"),
+							fps
+					));
+				}
 			}
 		} break;
 
@@ -3886,39 +3926,63 @@ void Node3DEditorViewport::_notification(int p_what) {
 			override_button_stylebox(pilot_camera, information_3d_stylebox);
 			override_label_colors(pilot_camera);
 
+			const Ref<Font> monospace_font = get_theme_font(SNAME("doc_source"), EditorStringName(EditorFonts));
+			const Color shadow_color = Color(0.0, 0.0, 0.0, 0.5);
+
 			info_panel->add_theme_style_override(SceneStringName(panel), information_3d_stylebox);
 			override_label_colors(info_label);
+
+			info_label->add_theme_font_override(SceneStringName(font), monospace_font);
+			info_label->add_theme_color_override(SNAME("font_shadow_color"), shadow_color);
+
 			tooltip_panel->add_theme_style_override(CoreStringName(normal), information_3d_stylebox);
 
 			frame_time_panel->add_theme_style_override(SceneStringName(panel), information_3d_stylebox);
-			// Set a minimum width to prevent the width from changing all the time
-			// when numbers vary rapidly. This minimum width is set based on a
-			// GPU time of 999.99 ms in the current editor language.
-			const float min_width = get_theme_font(SNAME("main"), EditorStringName(EditorFonts))->get_string_size(vformat(TTR("GPU Time: %s ms"), 999.99)).x;
-			frame_time_panel->set_custom_minimum_size(Size2(min_width, 0) * EDSCALE);
+			// Set a minimum width to prevent the width from changing all the time  when numbers vary rapidly.
+			// This minimum width is set based on a GPU time of 999.99 ms in the current editor language.
+			const Size2 min_width = get_theme_font(SNAME("doc_source"), EditorStringName(EditorFonts))->get_string_size(vformat(TTR("Avg: %s ms"), 999.99));
+			frame_time_panel->set_custom_minimum_size(Size2(min_width.x, min_width.y * 8) * EDSCALE);
 			frame_time_vbox->add_theme_constant_override("separation", Math::round(-1 * EDSCALE));
+
+			cpu_label->set_text(TTR("-  CPU Time  -"));
+			cpu_time_label->set_text(TTR("Avg: --"));
+			gpu_label->set_text(TTR("-  GPU Time  -"));
+			gpu_time_label->set_text(TTR("Avg: --\nMin: --\nMax: --"));
+			gpu_time_label->add_theme_constant_override("line_spacing", -3);
+			frame_time_label->set_text(TTR("-- FPS"));
+
+			cpu_label->add_theme_font_override(SceneStringName(font), monospace_font);
+			cpu_label->add_theme_color_override(SNAME("font_shadow_color"), shadow_color);
+			cpu_time_label->add_theme_font_override(SceneStringName(font), monospace_font);
+			cpu_time_label->add_theme_color_override(SNAME("font_shadow_color"), shadow_color);
+			gpu_label->add_theme_font_override(SceneStringName(font), monospace_font);
+			gpu_label->add_theme_color_override(SNAME("font_shadow_color"), shadow_color);
+			gpu_time_label->add_theme_font_override(SceneStringName(font), monospace_font);
+			gpu_time_label->add_theme_color_override(SNAME("font_shadow_color"), shadow_color);
+			frame_time_label->add_theme_font_override(SceneStringName(font), monospace_font);
+			frame_time_label->add_theme_color_override(SNAME("font_shadow_color"), shadow_color);
 
 			cinema_label->add_theme_style_override(CoreStringName(normal), information_3d_stylebox);
 			locked_label->add_theme_style_override(CoreStringName(normal), information_3d_stylebox);
 
 			ruler_label->add_theme_color_override(SceneStringName(font_color), Color(1.0, 0.9, 0.0, 1.0));
-			ruler_label->add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0));
-			ruler_label->add_theme_constant_override("outline_size", 4 * EDSCALE);
+			ruler_label->add_theme_color_override(SNAME("font_outline_color"), Color(0.0, 0.0, 0.0, 1.0));
+			ruler_label->add_theme_constant_override(SNAME("outline_size"), 4 * EDSCALE);
 			ruler_label->add_theme_font_size_override(SceneStringName(font_size), 15 * EDSCALE);
 			ruler_label->add_theme_font_override(SceneStringName(font), get_theme_font(SNAME("bold"), EditorStringName(EditorFonts)));
 
-			ruler_label_x->add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0));
-			ruler_label_x->add_theme_constant_override("outline_size", 4 * EDSCALE);
+			ruler_label_x->add_theme_color_override(SNAME("font_outline_color"), Color(0.0, 0.0, 0.0, 1.0));
+			ruler_label_x->add_theme_constant_override(SNAME("outline_size"), 4 * EDSCALE);
 			ruler_label_x->add_theme_font_size_override(SceneStringName(font_size), 15 * EDSCALE);
 			ruler_label_x->add_theme_font_override(SceneStringName(font), get_theme_font(SNAME("bold"), EditorStringName(EditorFonts)));
 
-			ruler_label_y->add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0));
-			ruler_label_y->add_theme_constant_override("outline_size", 4 * EDSCALE);
+			ruler_label_y->add_theme_color_override(SNAME("font_outline_color"), Color(0.0, 0.0, 0.0, 1.0));
+			ruler_label_y->add_theme_constant_override(SNAME("outline_size"), 4 * EDSCALE);
 			ruler_label_y->add_theme_font_size_override(SceneStringName(font_size), 15 * EDSCALE);
 			ruler_label_y->add_theme_font_override(SceneStringName(font), get_theme_font(SNAME("bold"), EditorStringName(EditorFonts)));
 
-			ruler_label_z->add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0));
-			ruler_label_z->add_theme_constant_override("outline_size", 4 * EDSCALE);
+			ruler_label_z->add_theme_color_override(SNAME("font_outline_color"), Color(0.0, 0.0, 0.0, 1.0));
+			ruler_label_z->add_theme_constant_override(SNAME("outline_size"), 4 * EDSCALE);
 			ruler_label_z->add_theme_font_size_override(SceneStringName(font_size), 15 * EDSCALE);
 			ruler_label_z->add_theme_font_override(SceneStringName(font), get_theme_font(SNAME("bold"), EditorStringName(EditorFonts)));
 		} break;
@@ -6709,9 +6773,14 @@ void Node3DEditorViewport::_load_viewport_inputs() {
 	register_shortcut_action("spatial_editor/freelook_slow_modifier", TTRC("Freelook Slow Modifier"), Key::ALT);
 }
 
-Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p_index) {
-	cpu_time_history_index = 0;
-	gpu_time_history_index = 0;
+
+Node3DEditorViewport::Node3DEditorViewport
+	(
+		Node3DEditor *p_spatial_editor,
+		int p_index
+	)
+{
+	time_history_index = 0;
 
 	_edit.mode = TRANSFORM_NONE;
 	_edit.plane = TRANSFORM_VIEW;
@@ -7038,6 +7107,7 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 	rotation_control->set_focus_mode(FOCUS_CLICK);
 	top_right_vbox->add_child(rotation_control);
 
+	// Performance Panel //
 	frame_time_panel = memnew(PanelContainer);
 	frame_time_panel->set_mouse_filter(MOUSE_FILTER_IGNORE);
 	top_right_vbox->add_child(frame_time_panel);
@@ -7046,15 +7116,19 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 	frame_time_vbox = memnew(VBoxContainer);
 	frame_time_panel->add_child(frame_time_vbox);
 
-	// Individual Labels are used to allow coloring each label with its own color.
+	// Individual Labels are used to allow colors to be overriden separately.
+	cpu_label = memnew(Label);
+	frame_time_vbox->add_child(cpu_label);
 	cpu_time_label = memnew(Label);
 	frame_time_vbox->add_child(cpu_time_label);
-
+	frame_time_vbox->add_spacer();
+	gpu_label = memnew(Label);
+	frame_time_vbox->add_child(gpu_label);
 	gpu_time_label = memnew(Label);
 	frame_time_vbox->add_child(gpu_time_label);
-
-	fps_label = memnew(Label);
-	frame_time_vbox->add_child(fps_label);
+	frame_time_vbox->add_spacer();
+	frame_time_label = memnew(Label);
+	frame_time_vbox->add_child(frame_time_label);
 
 	surface->add_child(top_right_vbox);
 

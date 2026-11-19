@@ -35,6 +35,7 @@
 #include "editor/themes/editor_scale.h"
 #include "scene/debugger/view_3d_controller.h"
 #include "scene/gui/margin_container.h"
+#include "scene/gui/separator.h"
 
 class AcceptDialog;
 class CheckBox;
@@ -219,13 +220,14 @@ public:
 	static constexpr int32_t GIZMO_GRID_LAYER = 25;
 	static constexpr int32_t MISC_TOOL_LAYER = 24;
 
-	static constexpr int32_t FRAME_TIME_HISTORY = 20;
+	static constexpr int32_t FRAME_TIME_HISTORY = 100;
+	static constexpr double FRAME_TIME_ROLLOVER_SECS = 1.0;
 
 private:
 	double cpu_time_history[FRAME_TIME_HISTORY];
-	int cpu_time_history_index;
 	double gpu_time_history[FRAME_TIME_HISTORY];
-	int gpu_time_history_index;
+	int time_history_index;
+	double rollover_timer = 0.0;
 
 	Node *ruler = nullptr;
 	Node3D *ruler_start_point = nullptr;
@@ -305,9 +307,11 @@ private:
 	Ref<Gradient> frame_time_gradient;
 	PanelContainer *frame_time_panel = nullptr;
 	VBoxContainer *frame_time_vbox = nullptr;
+	Label *cpu_label = nullptr;
 	Label *cpu_time_label = nullptr;
+	Label *gpu_label = nullptr;
 	Label *gpu_time_label = nullptr;
-	Label *fps_label = nullptr;
+	Label *frame_time_label = nullptr;
 
 	struct _RayResult {
 		Node3D *item = nullptr;
