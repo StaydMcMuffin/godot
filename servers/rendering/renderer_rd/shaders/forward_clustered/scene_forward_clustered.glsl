@@ -1891,13 +1891,25 @@ void fragment_shader(
 
 	vec3 indirect_diffuse = vec3(0.0);
 	vec3 indirect_specular = vec3(0.0);  // Always defined, but never output when SPECULAR_DISABLED is defined, in which case anything modifying it is compiled out.
+
+	// Built-in ambient disabled, use custom (ir)radiance directly.
+#ifdef AMBIENT_LIGHT_DISABLED
+#ifdef CUSTOM_IRRADIANCE_USED
+	indirect_diffuse = custom_irradiance.rgb * custom_irradiance.a;
+#endif // CUSTOM_IRRADIANCE_USED
+#ifdef CUSTOM_RADIANCE_USED
+	indirect_specular = custom_radiance.rgb * custom_radiance.a;
+#endif // CUSTOM_RADIANCE_USED
+#endif // AMBIENT_LIGHT_DISABLED
 	
+
 #ifdef USE_IRRADIANCE_MATCHING
 	float hi_irradiance = 0.0;
 #ifdef LIGHT_CLEARCOAT_USED
 	float cc_hi_irradiance = 0.0;
 #endif // LIGHT_CLEARCOAT_USED
 #endif // USE_IRRADIANCE_MATCHING
+
 
 #if !defined(AMBIENT_LIGHT_DISABLED) || defined(USE_VERTEX_LIGHTING)
 #ifdef BENT_NORMAL_MAP_USED
