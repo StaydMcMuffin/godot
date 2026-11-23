@@ -217,7 +217,7 @@ float get_distance_attenuation (
 
 
 void light_process_omni_vertex (
-		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness, float shadow_scale,
 #if (USE_VERTEX_LIGHTING == 0)
 		inout vec3 diffuse_light, inout vec3 specular_light
 #else  // USE_VERTEX_LIGHTING == 1
@@ -263,9 +263,9 @@ void light_process_omni_vertex (
 		vec2 pos = shadow_sample.xy * shadow_sample.z;
 		float depth = shadow_len - light_data.shadow_bias;
 		depth = 1.0 - depth * light_data.inv_radius;
-		float shadow_blur_scale = light_data.soft_shadow_scale * shadow_sample.z;
+		float shadow_blur_scale = (1.0 + light_data.soft_shadow_scale) * shadow_sample.z;
 		shadow_blur_scale += sqrt(shadow_blur_scale);  // Boost shadow filter scale to reduce per-vertex aliasing.
-		float shadow = sample_omni_pcf_shadow_vertex(shadow_atlas, shadow_blur_scale, pos, uv_rect, flip_offset, depth);
+		float shadow = sample_omni_pcf_shadow_vertex(shadow_atlas, shadow_blur_scale * shadow_scale, pos, uv_rect, flip_offset, depth);
 		omni_attenuation *= mix(1.0, shadow, light_data.shadow_opacity);
 	}
 #endif // !SHADOWS_DISABLED
@@ -287,7 +287,7 @@ void light_process_omni_vertex (
 
 
 void light_process_spot_vertex (
-		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+		uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness, float shadow_scale,
 #if (USE_VERTEX_LIGHTING == 0)
 		inout vec3 diffuse_light, inout vec3 specular_light
 #else  // USE_VERTEX_LIGHTING == 1
@@ -331,9 +331,9 @@ void light_process_spot_vertex (
 		splane /= splane.w;
 
 		vec3 shadow_uv = vec3(splane.xy * light_data.atlas_rect.zw + light_data.atlas_rect.xy, splane.z);
-		float shadow_blur_scale = light_data.soft_shadow_scale;
+		float shadow_blur_scale = 1.0 + light_data.soft_shadow_scale;
 		shadow_blur_scale += sqrt(shadow_blur_scale);  // Boost shadow filter scale to reduce per-vertex aliasing.
-		float shadow = sample_pcf_shadow_vertex(shadow_atlas, scene_data_block.data.shadow_atlas_pixel_size * shadow_blur_scale, shadow_uv);
+		float shadow = sample_pcf_shadow_vertex(shadow_atlas, scene_data_block.data.shadow_atlas_pixel_size * shadow_blur_scale * shadow_scale, shadow_uv);
 		spot_attenuation *= mix(1.0, shadow, light_data.shadow_opacity);
 	}
 #endif // !SHADOWS_DISABLED

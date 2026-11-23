@@ -652,6 +652,16 @@ void vertex_shader (
 	vec2 clip_pos = clamp((gl_Position.xy / gl_Position.w) * 0.5 + 0.5, 0.0, 1.0);
 #endif // USE_MULTIVIEW
 
+	// Get model scale from transform matrix for scaling the per-vertex shadow kernel.
+#ifndef SHADOWS_DISABLED
+	float model_scale = sqrt(1.0 + max(max(
+			dot(read_model_matrix[0].xyz, read_model_matrix[0].xyz),
+			dot(read_model_matrix[1].xyz, read_model_matrix[1].xyz)),
+			dot(read_model_matrix[2].xyz, read_model_matrix[2].xyz)));
+#else  // SHADOWS_DISABLED
+	float model_scale = 1.0;
+#endif // SHADOWS_DISABLED
+
 	uvec2 screen_size = uvec2(1.0 / scene_data.screen_pixel_size);
 	uvec2 screen_pixel = clamp(uvec2(clip_pos * vec2(screen_size)), uvec2(0), screen_size - uvec2(1));
 	uvec2 cluster_pos = screen_pixel >> implementation_data.cluster_shift;
@@ -684,7 +694,7 @@ void vertex_shader (
 					continue;  // Statically baked light and object uses lightmap, skip.
 
 				light_process_omni_vertex(
-						light_index, vertex_interp, view, normal_interp, roughness,
+						light_index, vertex_interp, view, normal_interp, roughness, model_scale,
 #if (USE_VERTEX_LIGHTING == 0)
 						diffuse_light_interp.rgb, specular_light_interp.rgb
 #else  // USE_VERTEX_LIGHTING == 1
@@ -721,7 +731,8 @@ void vertex_shader (
 				if (spot_lights.data[light_index].bake_mode == LIGHT_BAKE_STATIC && bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP))
 					continue;  // Statically baked light and object uses lightmap, skip.
 
-				light_process_spot_vertex(light_index, vertex_interp, view, normal_interp, roughness,
+				light_process_spot_vertex(
+						light_index, vertex_interp, view, normal_interp, roughness, model_scale,
 #if (USE_VERTEX_LIGHTING == 0)
 						diffuse_light_interp.rgb, specular_light_interp.rgb
 #else  // USE_VERTEX_LIGHTING == 1
@@ -767,9 +778,9 @@ void vertex_shader (
 			pssm_coord.xyz *= 1.0 / pssm_coord.w;
 
 			// Adjust shadow blur with reference to the first split to reduce discrepancy between shadow splits.
-			float blur_factor = light_data.soft_shadow_scale * (light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx]);
+			float blur_factor = (1.0 + light_data.soft_shadow_scale) * (light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx]);
 			blur_factor += sqrt(blur_factor);  // Boost shadow filter scale to reduce per-vertex aliasing.
-			float shadow = sample_directional_pcf_shadow_vertex(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor, pssm_coord);
+			float shadow = sample_directional_pcf_shadow_vertex(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor * model_scale, pssm_coord);
 
 			uint max_blend_split = light_data.shadow_split_offsets[3] > 0.0 ? 2 : 0;  // Final cascade does not blend.
 			if (light_data.blend_splits && depth_z < light_data.shadow_split_offsets[max_blend_split])
@@ -779,9 +790,9 @@ void vertex_shader (
 				pssm_coord = (light_data.shadow_matrix[split_idx+1] * v);
 				pssm_coord.xyz *= 1.0 / pssm_coord.w;
 
-				blur_factor = light_data.soft_shadow_scale * (light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx+1]);
+				blur_factor = (1.0 + light_data.soft_shadow_scale) * (light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx+1]);
 				blur_factor += sqrt(blur_factor);  // Boost shadow filter scale to reduce per-vertex aliasing.
-				float shadow2 = sample_directional_pcf_shadow_vertex(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor, pssm_coord);
+				float shadow2 = sample_directional_pcf_shadow_vertex(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor * model_scale, pssm_coord);
 				
 				float pssm_blend = smoothstep(light_data.shadow_split_offsets[split_idx] * 0.8, light_data.shadow_split_offsets[split_idx], depth_z);  // Blend over last 20% of lower cascade.
 				shadow = mix(shadow, shadow2, pssm_blend);
@@ -1374,7 +1385,7 @@ void fragment_shader(
 #endif // USE_MULTIVIEW
 
 	vec3 GD_albedo = vec3(1.0);
-	vec3 backlight = vec3(0.0);
+	vec3 GD_backlight = vec3(0.0);
 	vec4 transmittance_color = vec4(0.0, 0.0, 0.0, 1.0);
 	float transmittance_depth = 0.0;
 	float transmittance_boost = 0.0;
