@@ -135,10 +135,10 @@ private:
 		float viewport_size[2];
 		float screen_pixel_size[2];
 
-		float directional_penumbra_shadow_kernel[128]; //32 vec4s
+		// These are 32 vec4s.
 		float directional_soft_shadow_kernel[128];
-		float penumbra_shadow_kernel[128];
 		float soft_shadow_kernel[128];
+		float vertex_shadow_kernel[128];
 
 		float shadow_atlas_pixel_size[2];
 		float directional_shadow_pixel_size[2];

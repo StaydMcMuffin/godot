@@ -12,7 +12,8 @@
 #define SCENE_DATA_FLAGS_USE_PANCAKE_SHADOWS (1 << 6)
 #define SCENE_DATA_FLAGS_IN_SHADOW_PASS (1 << 7)
 
-struct SceneData {
+struct SceneData
+{
 	mat4 projection_matrix;
 	mat4 inv_projection_matrix;
 	mat3x4 inv_view_matrix;
@@ -20,7 +21,7 @@ struct SceneData {
 
 #ifdef USE_DOUBLE_PRECISION
 	vec4 inv_view_precision;
-#endif
+#endif // USE_DOUBLE_PRECISION
 
 	// only used for multiview
 	mat4 projection_matrix_view[MAX_VIEWS];
@@ -33,11 +34,10 @@ struct SceneData {
 	vec2 viewport_size;
 	vec2 screen_pixel_size;
 
-	// Use vec4s because std140 doesn't play nice with vec2s, z and w are wasted.
-	vec4 directional_penumbra_shadow_kernel[32];
+	// PCF kernels are in XY, PCSS in ZW.
 	vec4 directional_soft_shadow_kernel[32];
-	vec4 penumbra_shadow_kernel[32];
 	vec4 soft_shadow_kernel[32];
+	vec4 vertex_shadow_kernel[32];
 
 	vec2 shadow_atlas_pixel_size;
 	vec2 directional_shadow_pixel_size;

@@ -522,7 +522,7 @@ half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_
 
 	SPEC_CONSTANT_LOOP_ANNOTATION
 	for (uint i = 0; i < sc_directional_penumbra_shadow_samples(); i++) {
-		vec2 suv = pssm_coord.xy + (disk_rotation * scene_data_block.data.directional_penumbra_shadow_kernel[i].xy) * tex_scale;
+		vec2 suv = pssm_coord.xy + (disk_rotation * scene_data_block.data.directional_soft_shadow_kernel[i].zw) * tex_scale;
 		float d = textureLod(sampler2D(shadow, SAMPLER_LINEAR_CLAMP), suv, 0.0).r;
 		if (d > pssm_coord.z) {
 			blocker_average += d;
@@ -540,7 +540,7 @@ half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_
 
 		SPEC_CONSTANT_LOOP_ANNOTATION
 		for (uint i = 0; i < sc_directional_penumbra_shadow_samples(); i++) {
-			vec2 suv = pssm_coord.xy + (disk_rotation * scene_data_block.data.directional_penumbra_shadow_kernel[i].xy) * tex_scale;
+			vec2 suv = pssm_coord.xy + (disk_rotation * scene_data_block.data.directional_soft_shadow_kernel[i].zw) * tex_scale;
 			s += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(suv, pssm_coord.z, 1.0));
 		}
 
@@ -676,7 +676,7 @@ void light_process_omni (
 
 			SPEC_CONSTANT_LOOP_ANNOTATION
 			for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
-				vec2 disk = disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy;
+				vec2 disk = disk_rotation * scene_data_block.data.soft_shadow_kernel[i].zw;
 
 				vec3 pos = local_vert + tangent * disk.x + bitangent * disk.y;
 
@@ -714,7 +714,7 @@ void light_process_omni (
 
 				SPEC_CONSTANT_LOOP_ANNOTATION
 				for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
-					vec2 disk = disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy;
+					vec2 disk = disk_rotation * scene_data_block.data.soft_shadow_kernel[i].zw;
 					vec3 pos = local_vert + tangent * disk.x + bitangent * disk.y;
 
 					pos = normalize(pos);
@@ -1039,7 +1039,7 @@ void light_process_spot (
 
 			SPEC_CONSTANT_LOOP_ANNOTATION
 			for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
-				vec2 suv = shadow_uv + (disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy) * uv_size;
+				vec2 suv = shadow_uv + (disk_rotation * scene_data_block.data.soft_shadow_kernel[i].zw) * uv_size;
 				suv = clamp(suv, light_data.atlas_rect.xy, clamp_max);
 				float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), suv, 0.0).r;
 				if (d > splane.z) {
@@ -1058,7 +1058,7 @@ void light_process_spot (
 
 				SPEC_CONSTANT_LOOP_ANNOTATION
 				for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
-					vec2 suv = shadow_uv + (disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy) * uv_size;
+					vec2 suv = shadow_uv + (disk_rotation * scene_data_block.data.soft_shadow_kernel[i].zw) * uv_size;
 					suv = clamp(suv, light_data.atlas_rect.xy, clamp_max);
 					shadow += half(textureProj(sampler2DShadow(shadow_atlas, shadow_sampler), vec4(suv, splane.z, 1.0)));
 				}
@@ -1244,7 +1244,7 @@ void light_process_area (
 
 			SPEC_CONSTANT_LOOP_ANNOTATION
 			for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
-				vec2 disk = disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy;
+				vec2 disk = disk_rotation * scene_data_block.data.soft_shadow_kernel[i].zw;
 
 				vec3 pos = local_vert + tangent * disk.x + bitangent * disk.y;
 
@@ -1278,7 +1278,7 @@ void light_process_area (
 
 				SPEC_CONSTANT_LOOP_ANNOTATION
 				for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
-					vec2 disk = disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy;
+					vec2 disk = disk_rotation * scene_data_block.data.soft_shadow_kernel[i].zw;
 					vec3 pos = local_vert + tangent * disk.x + bitangent * disk.y;
 
 					pos = normalize(pos);

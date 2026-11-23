@@ -136,10 +136,10 @@ private:
 	float shadows_quality_radius = 1.0;
 	float directional_shadow_quality_radius = 1.0;
 
-	float *directional_penumbra_shadow_kernel = nullptr;
 	float *directional_soft_shadow_kernel = nullptr;
-	float *penumbra_shadow_kernel = nullptr;
 	float *soft_shadow_kernel = nullptr;
+	float *vertex_shadow_kernel = nullptr;
+
 	bool lightmap_filter_bicubic = false;
 	int directional_penumbra_shadow_samples = 0;
 	int directional_soft_shadow_samples = 0;
@@ -288,18 +288,17 @@ public:
 		return directional_shadow_quality_radius;
 	}
 
-	_FORCE_INLINE_ float *directional_penumbra_shadow_kernel_get() {
-		return directional_penumbra_shadow_kernel;
-	}
-	_FORCE_INLINE_ float *directional_soft_shadow_kernel_get() {
-		return directional_soft_shadow_kernel;
-	}
-	_FORCE_INLINE_ float *penumbra_shadow_kernel_get() {
-		return penumbra_shadow_kernel;
-	}
-	_FORCE_INLINE_ float *soft_shadow_kernel_get() {
-		return soft_shadow_kernel;
-	}
+	_FORCE_INLINE_
+	float *directional_soft_shadow_kernel_get()
+	{ return directional_soft_shadow_kernel; }
+	
+	_FORCE_INLINE_
+	float *soft_shadow_kernel_get()
+	{ return soft_shadow_kernel; }
+
+	_FORCE_INLINE_
+	float *vertex_shadow_kernel_get()
+	{ return vertex_shadow_kernel; }
 
 	_FORCE_INLINE_ int directional_penumbra_shadow_samples_get() const {
 		return directional_penumbra_shadow_samples;

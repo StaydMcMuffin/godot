@@ -44,17 +44,22 @@
 #include "servers/rendering/shader_include_db.h"
 #include "servers/rendering/storage/camera_attributes_storage.h"
 
-void get_vogel_disk(float *r_kernel, int p_sample_count) {
-	const float golden_angle = 2.4;
 
-	for (int i = 0; i < p_sample_count; i++) {
+void get_vogel_disk(float *r_kernel, int p_sample_count, bool is_pcss)
+{
+	constexpr float golden_angle = 2.4;
+	const int ofs = is_pcss ? 2 : 0;  // PCF kernel is in XY, PCSS in ZW.
+
+	for (int i = 0; i < p_sample_count; i++)
+	{
 		float r = Math::sqrt(float(i) + 0.5) / Math::sqrt(float(p_sample_count));
 		float theta = float(i) * golden_angle;
 
-		r_kernel[i * 4] = Math::cos(theta) * r;
-		r_kernel[i * 4 + 1] = Math::sin(theta) * r;
+		r_kernel[i * 4 + ofs] = Math::cos(theta) * r;
+		r_kernel[i * 4 + 1 + ofs] = Math::sin(theta) * r;
 	}
 }
+
 
 RID RendererSceneRenderRD::sky_allocate() {
 	return sky.allocate_sky_rid();
@@ -1275,39 +1280,52 @@ void RendererSceneRenderRD::gi_set_use_half_resolution(bool p_enable) {
 	gi.half_resolution = p_enable;
 }
 
-void RendererSceneRenderRD::positional_soft_shadow_filter_set_quality(RSE::ShadowQuality p_quality) {
+
+void RendererSceneRenderRD::positional_soft_shadow_filter_set_quality
+	(
+		RSE::ShadowQuality p_quality
+	)
+{
 	ERR_FAIL_INDEX_MSG(p_quality, RSE::SHADOW_QUALITY_MAX, "Shadow quality too high, please see RenderingServer's ShadowQuality enum");
 
-	if (shadows_quality != p_quality) {
+	if (shadows_quality != p_quality)
+	{
 		shadows_quality = p_quality;
 
-		switch (shadows_quality) {
-			case RSE::SHADOW_QUALITY_HARD: {
+		switch (shadows_quality)
+		{
+			case RSE::SHADOW_QUALITY_HARD:
+			{
 				penumbra_shadow_samples = 4;
 				soft_shadow_samples = 0;
 				shadows_quality_radius = 1.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_VERY_LOW: {
+			case RSE::SHADOW_QUALITY_SOFT_VERY_LOW:
+			{
 				penumbra_shadow_samples = 4;
 				soft_shadow_samples = 1;
 				shadows_quality_radius = 1.5;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_LOW: {
+			case RSE::SHADOW_QUALITY_SOFT_LOW:
+			{
 				penumbra_shadow_samples = 8;
 				soft_shadow_samples = 4;
 				shadows_quality_radius = 2.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_MEDIUM: {
+			case RSE::SHADOW_QUALITY_SOFT_MEDIUM:
+			{
 				penumbra_shadow_samples = 12;
 				soft_shadow_samples = 8;
 				shadows_quality_radius = 2.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_HIGH: {
+			case RSE::SHADOW_QUALITY_SOFT_HIGH:
+			{
 				penumbra_shadow_samples = 24;
 				soft_shadow_samples = 16;
 				shadows_quality_radius = 3.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_ULTRA: {
+			case RSE::SHADOW_QUALITY_SOFT_ULTRA:
+			{
 				penumbra_shadow_samples = 32;
 				soft_shadow_samples = 32;
 				shadows_quality_radius = 4.0;
@@ -1315,46 +1333,60 @@ void RendererSceneRenderRD::positional_soft_shadow_filter_set_quality(RSE::Shado
 			case RSE::SHADOW_QUALITY_MAX:
 				break;
 		}
-		get_vogel_disk(penumbra_shadow_kernel, penumbra_shadow_samples);
-		get_vogel_disk(soft_shadow_kernel, soft_shadow_samples);
+		get_vogel_disk(soft_shadow_kernel, penumbra_shadow_samples, true);
+		get_vogel_disk(soft_shadow_kernel, soft_shadow_samples, false);
+		get_vogel_disk(vertex_shadow_kernel, 32, false);
 	}
 
 	_update_shader_quality_settings();
 }
 
-void RendererSceneRenderRD::directional_soft_shadow_filter_set_quality(RSE::ShadowQuality p_quality) {
+
+void RendererSceneRenderRD::directional_soft_shadow_filter_set_quality
+	(
+		RSE::ShadowQuality p_quality
+	)
+{
 	ERR_FAIL_INDEX_MSG(p_quality, RSE::SHADOW_QUALITY_MAX, "Shadow quality too high, please see RenderingServer's ShadowQuality enum");
 
-	if (directional_shadow_quality != p_quality) {
+	if (directional_shadow_quality != p_quality)
+	{
 		directional_shadow_quality = p_quality;
 
-		switch (directional_shadow_quality) {
-			case RSE::SHADOW_QUALITY_HARD: {
+		switch (directional_shadow_quality)
+		{
+			case RSE::SHADOW_QUALITY_HARD:
+			{
 				directional_penumbra_shadow_samples = 4;
 				directional_soft_shadow_samples = 0;
 				directional_shadow_quality_radius = 1.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_VERY_LOW: {
+			case RSE::SHADOW_QUALITY_SOFT_VERY_LOW:
+			{
 				directional_penumbra_shadow_samples = 4;
 				directional_soft_shadow_samples = 1;
 				directional_shadow_quality_radius = 1.5;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_LOW: {
+			case RSE::SHADOW_QUALITY_SOFT_LOW:
+			{
 				directional_penumbra_shadow_samples = 8;
 				directional_soft_shadow_samples = 4;
 				directional_shadow_quality_radius = 2.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_MEDIUM: {
+			case RSE::SHADOW_QUALITY_SOFT_MEDIUM:
+			{
 				directional_penumbra_shadow_samples = 12;
 				directional_soft_shadow_samples = 8;
 				directional_shadow_quality_radius = 2.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_HIGH: {
+			case RSE::SHADOW_QUALITY_SOFT_HIGH:
+			{
 				directional_penumbra_shadow_samples = 24;
 				directional_soft_shadow_samples = 16;
 				directional_shadow_quality_radius = 3.0;
 			} break;
-			case RSE::SHADOW_QUALITY_SOFT_ULTRA: {
+			case RSE::SHADOW_QUALITY_SOFT_ULTRA:
+			{
 				directional_penumbra_shadow_samples = 32;
 				directional_soft_shadow_samples = 32;
 				directional_shadow_quality_radius = 4.0;
@@ -1362,12 +1394,14 @@ void RendererSceneRenderRD::directional_soft_shadow_filter_set_quality(RSE::Shad
 			case RSE::SHADOW_QUALITY_MAX:
 				break;
 		}
-		get_vogel_disk(directional_penumbra_shadow_kernel, directional_penumbra_shadow_samples);
-		get_vogel_disk(directional_soft_shadow_kernel, directional_soft_shadow_samples);
+		get_vogel_disk(directional_soft_shadow_kernel, directional_penumbra_shadow_samples, true);
+		get_vogel_disk(directional_soft_shadow_kernel, directional_soft_shadow_samples, false);
+		get_vogel_disk(vertex_shadow_kernel, 32, false);
 	}
 
 	_update_shader_quality_settings();
 }
+
 
 void RendererSceneRenderRD::decals_set_filter(RSE::DecalFilter p_filter) {
 	if (decals_filter == p_filter) {
@@ -1376,6 +1410,7 @@ void RendererSceneRenderRD::decals_set_filter(RSE::DecalFilter p_filter) {
 	decals_filter = p_filter;
 	_update_shader_quality_settings();
 }
+
 void RendererSceneRenderRD::light_projectors_set_filter(RSE::LightProjectorFilter p_filter) {
 	if (light_projectors_filter == p_filter) {
 		return;
@@ -1940,10 +1975,9 @@ void RendererSceneRenderRD::init() {
 	screen_space_roughness_limiter_limit = GLOBAL_GET("rendering/anti_aliasing/screen_space_roughness_limiter/limit");
 	glow_bicubic_upscale = int(GLOBAL_GET("rendering/environment/glow/upscale_mode")) > 0;
 
-	directional_penumbra_shadow_kernel = memnew_arr(float, 128);
 	directional_soft_shadow_kernel = memnew_arr(float, 128);
-	penumbra_shadow_kernel = memnew_arr(float, 128);
 	soft_shadow_kernel = memnew_arr(float, 128);
+	vertex_shadow_kernel = memnew_arr(float, 128);
 	positional_soft_shadow_filter_set_quality(RSE::ShadowQuality(int(GLOBAL_GET("rendering/lights_and_shadows/positional_shadow/soft_shadow_filter_quality"))));
 	directional_soft_shadow_filter_set_quality(RSE::ShadowQuality(int(GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality"))));
 
@@ -2025,10 +2059,9 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 		RendererRD::Fog::get_singleton()->free_fog_shader();
 	}
 
-	memdelete_arr(directional_penumbra_shadow_kernel);
 	memdelete_arr(directional_soft_shadow_kernel);
-	memdelete_arr(penumbra_shadow_kernel);
 	memdelete_arr(soft_shadow_kernel);
+	memdelete_arr(vertex_shadow_kernel);
 
 	RSG::light_storage->directional_shadow_atlas_set_size(0);
 	cull_argument.reset(); //avoid exit error

@@ -42,42 +42,43 @@ float D_GGX (in float NdotH, in float alpha)
 }
 
 
+// NOTE: Per-vertex shadows always use 32 samples to reduce flickering.
 #ifndef SHADOWS_DISABLED
-half sample_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec3 coord)
+float sample_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec3 coord)
 {
 	// If only one sample is taken, take it from the center.
 	if (sc_soft_shadow_samples() == 0)
-		return half(textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy, coord.z, 1.0)));
+		return textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy, coord.z, 1.0));
 
 	float avg = 0.0;
 
 	SPEC_CONSTANT_LOOP_ANNOTATION
-	for (uint i = 0; i < sc_soft_shadow_samples(); i++)
+	for (uint i = 0; i < 32; i++)
 	{
-		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.soft_shadow_kernel[i].xy, coord.z, 1.0));
+		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.vertex_shadow_kernel[i].xy, coord.z, 1.0));
 	}
 
-	return half(avg * (1.0 / float(sc_soft_shadow_samples())));
+	return avg * (1.0 / 32.0);
 }
 
 
-half sample_omni_pcf_shadow_vertex(texture2D shadow, float blur_scale, vec2 coord, vec4 uv_rect, vec2 flip_offset, float depth)
+float sample_omni_pcf_shadow_vertex(texture2D shadow, float blur_scale, vec2 coord, vec4 uv_rect, vec2 flip_offset, float depth)
 {
 	// If only one sample is taken, take it from the center.
 	if (sc_soft_shadow_samples() == 0)
 	{
 		vec2 pos = coord * 0.5 + 0.5;
 		pos = uv_rect.xy + pos * uv_rect.zw;
-		return half(textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(pos, depth, 1.0)));
+		return textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(pos, depth, 1.0));
 	}
 
 	float avg = 0.0;
 	vec2 offset_scale = blur_scale * 2.0 * scene_data_block.data.shadow_atlas_pixel_size / uv_rect.zw;
 
 	SPEC_CONSTANT_LOOP_ANNOTATION
-	for (uint i = 0; i < sc_soft_shadow_samples(); i++)
+	for (uint i = 0; i < 32; i++)
 	{
-		vec2 offset = offset_scale * scene_data_block.data.soft_shadow_kernel[i].xy;
+		vec2 offset = offset_scale * scene_data_block.data.vertex_shadow_kernel[i].xy;
 		vec2 sample_coord = coord + offset;
 
 		float sample_coord_length_squared = dot(sample_coord, sample_coord);
@@ -98,25 +99,25 @@ half sample_omni_pcf_shadow_vertex(texture2D shadow, float blur_scale, vec2 coor
 		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(sample_coord, depth, 1.0));
 	}
 
-	return half(avg * (1.0 / float(sc_soft_shadow_samples())));
+	return avg * (1.0 / 32.0);
 }
 
 
-half sample_directional_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec4 coord)
+float sample_directional_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec4 coord)
 {
 	// If only one sample is taken, take it from the center.
 	if (sc_directional_soft_shadow_samples() == 0)
-		return half(textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy, coord.z, 1.0)));
+		return textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy, coord.z, 1.0));
 
 	float avg = 0.0;
 
 	SPEC_CONSTANT_LOOP_ANNOTATION
-	for (uint i = 0; i < sc_directional_soft_shadow_samples(); i++)
+	for (uint i = 0; i < 32; i++)
 	{
-		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.directional_soft_shadow_kernel[i].xy, coord.z, 1.0));
+		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.vertex_shadow_kernel[i].xy, coord.z, 1.0));
 	}
 
-	return half(avg * (1.0 / float(sc_directional_soft_shadow_samples())));
+	return avg * (1.0 / 32.0);
 }
 #endif // !SHADOWS_DISABLED
 
