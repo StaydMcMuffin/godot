@@ -780,7 +780,7 @@ void vertex_shader (
 			// Adjust shadow blur with reference to the first split to reduce discrepancy between shadow splits.
 			float blur_factor = (1.0 + light_data.soft_shadow_scale) * (light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx]);
 			blur_factor += sqrt(blur_factor);  // Boost shadow filter scale to reduce per-vertex aliasing.
-			float shadow = sample_directional_pcf_shadow_vertex(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor * model_scale, pssm_coord);
+			float shadow = get_vertex_shadows_directional(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor * model_scale, pssm_coord);
 
 			uint max_blend_split = light_data.shadow_split_offsets[3] > 0.0 ? 2 : 0;  // Final cascade does not blend.
 			if (light_data.blend_splits && depth_z < light_data.shadow_split_offsets[max_blend_split])
@@ -792,7 +792,7 @@ void vertex_shader (
 
 				blur_factor = (1.0 + light_data.soft_shadow_scale) * (light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx+1]);
 				blur_factor += sqrt(blur_factor);  // Boost shadow filter scale to reduce per-vertex aliasing.
-				float shadow2 = sample_directional_pcf_shadow_vertex(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor * model_scale, pssm_coord);
+				float shadow2 = get_vertex_shadows_directional(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * blur_factor * model_scale, pssm_coord);
 				
 				float pssm_blend = smoothstep(light_data.shadow_split_offsets[split_idx] * 0.8, light_data.shadow_split_offsets[split_idx], depth_z);  // Blend over last 20% of lower cascade.
 				shadow = mix(shadow, shadow2, pssm_blend);
@@ -2782,7 +2782,7 @@ void fragment_shader(
 						float test_radius = (dot(light_data.direction, v.xyz) - light_data.shadow_range_begin[split_idx]) * light_data.softshadow_angle;
 						vec2 tex_scale = light_data.uv_scale[split_idx].xy * test_radius;
 
-						shadow = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
+						shadow = get_shadows_directional_pcss(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
 
 						uint max_blend_split = light_data.shadow_split_offsets[3] > 0.0 ? 2 : 0;  // Final cascade does not blend.
 						if (light_data.blend_splits && depth_z < light_data.shadow_split_offsets[max_blend_split])
@@ -2795,7 +2795,7 @@ void fragment_shader(
 							test_radius = (dot(light_data.direction, v.xyz) - light_data.shadow_range_begin[split_idx+1]) * light_data.softshadow_angle;
 							tex_scale = light_data.uv_scale[split_idx+1].xy * test_radius;
 
-							float shadow2 = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
+							float shadow2 = get_shadows_directional_pcss(directional_shadow_atlas, pssm_coord.xyz, tex_scale * light_data.soft_shadow_scale, scene_data.taa_frame_count);
 							
 							float pssm_blend = smoothstep(light_data.shadow_split_offsets[split_idx] * 0.9, light_data.shadow_split_offsets[split_idx], depth_z);  // Blend over last 10% of lower cascade.
 							shadow = mix(shadow, shadow2, pssm_blend);
@@ -2812,7 +2812,7 @@ void fragment_shader(
 						pssm_coord.xyz *= 1.0 / pssm_coord.w;
 						
 						float blur_factor = light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx];  // Adjust shadow blur with reference to the first split to reduce discrepancy between shadow splits.
-						shadow = sample_directional_pcf_shadow(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * light_data.soft_shadow_scale * blur_factor, pssm_coord, scene_data.taa_frame_count);
+						shadow = get_shadows_directional_pcf(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * light_data.soft_shadow_scale * blur_factor, pssm_coord, scene_data.taa_frame_count);
 
 						uint max_blend_split = light_data.shadow_split_offsets[3] > 0.0 ? 2 : 0;  // Final cascade does not blend.
 						if (light_data.blend_splits && depth_z < light_data.shadow_split_offsets[max_blend_split])
@@ -2823,7 +2823,7 @@ void fragment_shader(
 							pssm_coord.xyz *= 1.0 / pssm_coord.w;
 
 							blur_factor = light_data.shadow_split_offsets[0] / light_data.shadow_split_offsets[split_idx+1];
-							float shadow2 = sample_directional_pcf_shadow(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * light_data.soft_shadow_scale * blur_factor, pssm_coord, scene_data.taa_frame_count);
+							float shadow2 = get_shadows_directional_pcf(directional_shadow_atlas, scene_data.directional_shadow_pixel_size * light_data.soft_shadow_scale * blur_factor, pssm_coord, scene_data.taa_frame_count);
 							
 							float pssm_blend = smoothstep(light_data.shadow_split_offsets[split_idx] * 0.9, light_data.shadow_split_offsets[split_idx], depth_z);  // Blend over last 10% of lower cascade.
 							shadow = mix(shadow, shadow2, pssm_blend);

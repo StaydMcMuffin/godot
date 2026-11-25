@@ -7,10 +7,14 @@
 #extension GL_EXT_control_flow_attributes : require
 // Prefer to not unroll loops on the ubershader to reduce code size as much as possible.
 #define SPEC_CONSTANT_LOOP_ANNOTATION [[dont_unroll]]
-#else
+#else  // UBERSHADER
 // Don't make an explicit hint on specialized shaders.
 #define SPEC_CONSTANT_LOOP_ANNOTATION
-#endif
+#endif // UBERSHADER
+
+
+// Per-vertex shadow filtering always use 32 samples to reduce flickering.
+#define VERTEX_SHADOW_SAMPLES	32
 
 
 float sqr (in float x)	{ return x * x; }
@@ -42,9 +46,27 @@ float D_GGX (in float NdotH, in float alpha)
 }
 
 
-// NOTE: Per-vertex shadows always use 32 samples to reduce flickering.
+
 #ifndef SHADOWS_DISABLED
-float sample_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec3 coord)
+/// Sample directional light shadows with Percentage-Closer filtering. For vertex shader use.
+float get_vertex_shadows_directional (texture2D shadow, vec2 shadow_pixel_size, vec4 coord)
+{
+	// If only one sample is taken, take it from the center.
+	if (sc_directional_soft_shadow_samples() == 0)
+		return textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy, coord.z, 1.0));
+
+	float avg = 0.0;
+
+	SPEC_CONSTANT_LOOP_ANNOTATION
+	for (int i = 0; i < VERTEX_SHADOW_SAMPLES; i++)
+	{
+		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.vertex_shadow_kernel[i].xy, coord.z, 1.0));
+	}
+	return avg * (1.0 / float(VERTEX_SHADOW_SAMPLES));
+}
+
+/// Sample spot light shadows with Percentage-Closer filtering. For vertex shader use.
+float get_vertex_shadows_spot (texture2D shadow, vec2 shadow_pixel_size, vec3 coord)
 {
 	// If only one sample is taken, take it from the center.
 	if (sc_soft_shadow_samples() == 0)
@@ -53,16 +75,16 @@ float sample_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec3 co
 	float avg = 0.0;
 
 	SPEC_CONSTANT_LOOP_ANNOTATION
-	for (uint i = 0; i < 32; i++)
+	for (int i = 0; i < VERTEX_SHADOW_SAMPLES; i++)
 	{
-		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.vertex_shadow_kernel[i].xy, coord.z, 1.0));
+		avg += textureProj(sampler2DShadow(shadow, shadow_sampler),
+				vec4(coord.xy + shadow_pixel_size * scene_data_block.data.vertex_shadow_kernel[i].xy, coord.z, 1.0));
 	}
-
-	return avg * (1.0 / 32.0);
+	return avg * (1.0 / float(VERTEX_SHADOW_SAMPLES));
 }
 
-
-float sample_omni_pcf_shadow_vertex(texture2D shadow, float blur_scale, vec2 coord, vec4 uv_rect, vec2 flip_offset, float depth)
+/// Sample omni light shadows with Percentage-Closer filtering. For vertex shader use.
+float get_vertex_shadows_omni (texture2D shadow, float blur_scale, vec2 coord, vec4 uv_rect, vec2 flip_offset, float depth)
 {
 	// If only one sample is taken, take it from the center.
 	if (sc_soft_shadow_samples() == 0)
@@ -76,7 +98,7 @@ float sample_omni_pcf_shadow_vertex(texture2D shadow, float blur_scale, vec2 coo
 	vec2 offset_scale = blur_scale * 2.0 * scene_data_block.data.shadow_atlas_pixel_size / uv_rect.zw;
 
 	SPEC_CONSTANT_LOOP_ANNOTATION
-	for (uint i = 0; i < 32; i++)
+	for (int i = 0; i < VERTEX_SHADOW_SAMPLES; i++)
 	{
 		vec2 offset = offset_scale * scene_data_block.data.vertex_shadow_kernel[i].xy;
 		vec2 sample_coord = coord + offset;
@@ -98,26 +120,7 @@ float sample_omni_pcf_shadow_vertex(texture2D shadow, float blur_scale, vec2 coo
 		
 		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(sample_coord, depth, 1.0));
 	}
-
-	return avg * (1.0 / 32.0);
-}
-
-
-float sample_directional_pcf_shadow_vertex(texture2D shadow, vec2 shadow_pixel_size, vec4 coord)
-{
-	// If only one sample is taken, take it from the center.
-	if (sc_directional_soft_shadow_samples() == 0)
-		return textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy, coord.z, 1.0));
-
-	float avg = 0.0;
-
-	SPEC_CONSTANT_LOOP_ANNOTATION
-	for (uint i = 0; i < 32; i++)
-	{
-		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(coord.xy + shadow_pixel_size * scene_data_block.data.vertex_shadow_kernel[i].xy, coord.z, 1.0));
-	}
-
-	return avg * (1.0 / 32.0);
+	return avg * (1.0 / float(VERTEX_SHADOW_SAMPLES));
 }
 #endif // !SHADOWS_DISABLED
 
@@ -270,7 +273,7 @@ void light_process_omni_vertex (
 		depth = 1.0 - depth * light_data.inv_radius;
 		float shadow_blur_scale = (1.0 + light_data.soft_shadow_scale) * shadow_sample.z;
 		shadow_blur_scale += sqrt(shadow_blur_scale);  // Boost shadow filter scale to reduce per-vertex aliasing.
-		float shadow = sample_omni_pcf_shadow_vertex(shadow_atlas, shadow_blur_scale * shadow_scale, pos, uv_rect, flip_offset, depth);
+		float shadow = get_vertex_shadows_omni(shadow_atlas, shadow_blur_scale * shadow_scale, pos, uv_rect, flip_offset, depth);
 		omni_attenuation *= mix(1.0, shadow, light_data.shadow_opacity);
 	}
 #endif // !SHADOWS_DISABLED
@@ -345,7 +348,7 @@ void light_process_spot_vertex (
 		vec3 shadow_uv = vec3(splane.xy * light_data.atlas_rect.zw + light_data.atlas_rect.xy, splane.z);
 		float shadow_blur_scale = 1.0 + light_data.soft_shadow_scale;
 		shadow_blur_scale += sqrt(shadow_blur_scale);  // Boost shadow filter scale to reduce per-vertex aliasing.
-		float shadow = sample_pcf_shadow_vertex(shadow_atlas, scene_data_block.data.shadow_atlas_pixel_size * shadow_blur_scale * shadow_scale, shadow_uv);
+		float shadow = get_vertex_shadows_spot(shadow_atlas, scene_data_block.data.shadow_atlas_pixel_size * shadow_blur_scale * shadow_scale, shadow_uv);
 		spot_attenuation *= mix(1.0, shadow, light_data.shadow_opacity);
 	}
 #endif // !SHADOWS_DISABLED
