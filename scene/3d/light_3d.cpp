@@ -42,16 +42,17 @@ void Light3D::set_param(Param p_param, real_t p_value)
 {
 	ERR_FAIL_INDEX(p_param, PARAM_MAX);
 
+	// HACK: Hardcoded spot attenuation range because PROPERTY_HINT_EXP_EASING doesn't have that :V
 	if (p_param == PARAM_SPOT_ATTENUATION)
-		p_value = CLAMP(p_value, 1.0 / 16.0, 16.0);  // Jank hardcoded spot attenuation range because PROPERTY_HINT_EXP_EASING doesn't have that :V
+		p_value = CLAMP(p_value, 1.0 / 16.0, 16.0);
 
 	param[p_param] = p_value;
 	RS::get_singleton()->light_set_param(light, RSE::LightParam(p_param), p_value);
 
-	if (p_param == PARAM_SPOT_ANGLE || p_param == PARAM_RANGE)
+	if (p_param == PARAM_SPOT_ANGLE || p_param == PARAM_SPOT_ASPECT || p_param == PARAM_RANGE)
 	{
 		update_gizmos();
-		if (p_param == PARAM_SPOT_ANGLE)
+		if (p_param == PARAM_SPOT_ANGLE || p_param == PARAM_SPOT_ASPECT)
 			update_configuration_warnings();
 	}
 }
@@ -187,36 +188,45 @@ uint32_t Light3D::get_shadow_caster_mask() const {
 	return shadow_caster_mask;
 }
 
-AABB Light3D::get_aabb() const {
-	if (type == RSE::LIGHT_DIRECTIONAL) {
+
+AABB Light3D::get_aabb() const
+{
+	if (type == RSE::LIGHT_DIRECTIONAL)
+	{
 		return AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2));
-
-	} else if (type == RSE::LIGHT_OMNI) {
+	}
+	else if (type == RSE::LIGHT_OMNI)
+	{
 		return AABB(Vector3(-1, -1, -1) * param[PARAM_RANGE], Vector3(2, 2, 2) * param[PARAM_RANGE]);
+	}
+	else if (type == RSE::LIGHT_SPOT)
+	{
+		const real_t cone_slant_height = param[PARAM_RANGE];
+		const real_t cone_angle = Math::deg_to_rad(param[PARAM_SPOT_ANGLE]);
 
-	} else if (type == RSE::LIGHT_SPOT) {
-		real_t cone_slant_height = param[PARAM_RANGE];
-		real_t cone_angle_rad = Math::deg_to_rad(param[PARAM_SPOT_ANGLE]);
-
-		if (cone_angle_rad > Math::PI / 2.0) {
-			// Just return the AABB of an omni light if the spot angle is above 90 degrees.
+		// Just return the AABB of an omni light if the spot angle is above 90 degrees.
+		if (cone_angle > Math::PI / 2.0)
 			return AABB(Vector3(-1, -1, -1) * cone_slant_height, Vector3(2, 2, 2) * cone_slant_height);
-		}
 
-		real_t size = Math::sin(cone_angle_rad) * cone_slant_height;
-		return AABB(Vector3(-size, -size, -cone_slant_height), Vector3(2 * size, 2 * size, cone_slant_height));
-	} else if (type == RSE::LIGHT_AREA) {
-		float len = param[PARAM_RANGE];
+		real_t height = Math::sin(cone_angle);
+		real_t width = height * param[PARAM_SPOT_ASPECT];
 
+		return AABB(Vector3(-width, -height, -1) * cone_slant_height, Vector3(2 * width, 2 * height, 1) * cone_slant_height);
+	}
+	else if (type == RSE::LIGHT_AREA)
+	{
 		const AreaLight3D *l = Object::cast_to<const AreaLight3D>(this);
-		float width = l->get_area_size().x / 2.0 + len;
-		float height = l->get_area_size().y / 2.0 + len;
+
+		const real_t len = param[PARAM_RANGE];
+		real_t width = l->get_area_size().x / 2.0 + len;
+		real_t height = l->get_area_size().y / 2.0 + len;
 
 		return AABB(-Vector3(width, height, 0), Vector3(width * 2, height * 2, -len));
 	}
 
 	return AABB();
 }
+
 
 PackedStringArray Light3D::get_configuration_warnings() const {
 	PackedStringArray warnings = VisualInstance3D::get_configuration_warnings();
@@ -518,6 +528,7 @@ void Light3D::_bind_methods()
 	BIND_ENUM_CONSTANT(PARAM_SIZE);
 	BIND_ENUM_CONSTANT(PARAM_ATTENUATION);
 	BIND_ENUM_CONSTANT(PARAM_SPOT_ANGLE);
+	BIND_ENUM_CONSTANT(PARAM_SPOT_ASPECT);
 	BIND_ENUM_CONSTANT(PARAM_SPOT_ATTENUATION);
 	BIND_ENUM_CONSTANT(PARAM_NEAR_CLIP);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_MAX_DISTANCE);
@@ -581,6 +592,7 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_param(PARAM_SIZE, 0);
 	set_param(PARAM_ATTENUATION, 1);
 	set_param(PARAM_SPOT_ANGLE, 45);
+	set_param(PARAM_SPOT_ASPECT, 1.0);
 	set_param(PARAM_SPOT_ATTENUATION, 1);
 	set_param(PARAM_NEAR_CLIP, 0.025);
 	set_param(PARAM_SHADOW_MAX_DISTANCE, 0);
@@ -751,19 +763,22 @@ OmniLight3D::OmniLight3D() :
 	set_shadow_mode(SHADOW_CUBE);
 }
 
-PackedStringArray SpotLight3D::get_configuration_warnings() const {
+
+PackedStringArray SpotLight3D::get_configuration_warnings() const
+{
 	PackedStringArray warnings = Light3D::get_configuration_warnings();
 
-	if (has_shadow() && get_param(PARAM_SPOT_ANGLE) >= 90.0) {
+	if (has_shadow() && get_param(PARAM_SPOT_ANGLE) >= 90.0)
 		warnings.push_back(RTR("A SpotLight3D with an angle wider than 90 degrees cannot cast shadows."));
-	}
 
-	if (get_projector().is_valid() && (OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" || OS::get_singleton()->get_current_rendering_method() == "dummy")) {
+	if (get_projector().is_valid()
+	&& (OS::get_singleton()->get_current_rendering_method() == "gl_compatibility"
+	||  OS::get_singleton()->get_current_rendering_method() == "dummy"))
 		warnings.push_back(RTR("Projector textures are not supported when using the Compatibility renderer yet. Support will be added in a future release."));
-	}
 
 	return warnings;
 }
+
 
 void SpotLight3D::_bind_methods()
 {
@@ -771,15 +786,17 @@ void SpotLight3D::_bind_methods()
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_range", PROPERTY_HINT_RANGE, "0.001,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_near_clip", PROPERTY_HINT_RANGE, "0.001,16,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_NEAR_CLIP);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_attenuation", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_param", "get_param", PARAM_ATTENUATION);
-	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle", PROPERTY_HINT_RANGE, "0,180,0.01,degrees"), "set_param", "get_param", PARAM_SPOT_ANGLE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle", PROPERTY_HINT_RANGE, "0,89,0.01,degrees"), "set_param", "get_param", PARAM_SPOT_ANGLE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_aspect", PROPERTY_HINT_RANGE, "0.01,100,0.001,exp"), "set_param", "get_param", PARAM_SPOT_ASPECT);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle_attenuation", PROPERTY_HINT_EXP_EASING, "attenuation,positive_only"), "set_param", "get_param", PARAM_SPOT_ATTENUATION);
 }
 
-SpotLight3D::SpotLight3D() :
-		Light3D(RSE::LIGHT_SPOT) {
-	// Decrease the default shadow bias to better suit most scenes.
-	set_param(PARAM_SHADOW_BIAS, 0.03);
+
+SpotLight3D::SpotLight3D() : Light3D(RSE::LIGHT_SPOT)
+{
+	set_param(PARAM_SHADOW_BIAS, 0.03);  // Decrease the default shadow bias to better suit most scenes.
 }
+
 
 void AreaLight3D::set_area_texture(const Ref<Texture2D> &p_texture) {
 	area_texture = p_texture;

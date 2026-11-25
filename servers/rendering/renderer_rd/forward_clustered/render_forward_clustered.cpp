@@ -1665,33 +1665,46 @@ void RenderForwardClustered::_update_volumetric_fog(Ref<RenderSceneBuffersRD> p_
 	}
 }
 
+
 /* Lighting */
 
-void RenderForwardClustered::setup_added_reflection_probe(const Transform3D &p_transform, const Vector3 &p_half_size) {
-	if (current_cluster_builder != nullptr) {
+void RenderForwardClustered::setup_added_reflection_probe(const Transform3D &p_transform, const Vector3 &p_half_size)
+{
+	if (current_cluster_builder != nullptr)
 		current_cluster_builder->add_box(ClusterBuilderRD::BOX_TYPE_REFLECTION_PROBE, p_transform, p_half_size);
-	}
 }
 
-void RenderForwardClustered::setup_added_light(const RSE::LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, bool p_spot_frustum, const Vector2 &p_area_size) {
-	if (current_cluster_builder != nullptr) {
-		ClusterBuilderRD::LightType type;
-		if (p_type == RSE::LIGHT_SPOT) {
-			type = ClusterBuilderRD::LIGHT_TYPE_SPOT;
-		} else if (p_type == RSE::LIGHT_OMNI) {
-			type = ClusterBuilderRD::LIGHT_TYPE_OMNI;
-		} else {
-			type = ClusterBuilderRD::LIGHT_TYPE_AREA;
-		}
 
-		current_cluster_builder->add_light(type, p_transform, p_radius, p_spot_aperture, p_spot_frustum, p_area_size);
-	}
+void RenderForwardClustered::setup_added_light
+	(
+  const	RSE::LightType p_type,
+  const	Transform3D &p_transform,
+		float p_radius,
+		float p_spot_aperture,
+		float p_spot_aspect,
+		bool p_spot_frustum,
+  const	Vector2 &p_area_size
+	)
+{
+	if (current_cluster_builder == nullptr)
+		return;
+
+	ClusterBuilderRD::LightType type;
+	if (p_type == RSE::LIGHT_SPOT)
+		type = ClusterBuilderRD::LIGHT_TYPE_SPOT;
+	else if (p_type == RSE::LIGHT_OMNI)
+		type = ClusterBuilderRD::LIGHT_TYPE_OMNI;
+	else
+		type = ClusterBuilderRD::LIGHT_TYPE_AREA;
+
+	current_cluster_builder->add_light(type, p_transform, p_radius, p_spot_aperture, p_spot_aspect, p_spot_frustum, p_area_size);
 }
 
-void RenderForwardClustered::setup_added_decal(const Transform3D &p_transform, const Vector3 &p_half_size) {
-	if (current_cluster_builder != nullptr) {
+
+void RenderForwardClustered::setup_added_decal(const Transform3D &p_transform, const Vector3 &p_half_size)
+{
+	if (current_cluster_builder != nullptr)
 		current_cluster_builder->add_box(ClusterBuilderRD::BOX_TYPE_DECAL, p_transform, p_half_size);
-	}
 }
 
 /* Render scene */

@@ -22,6 +22,9 @@
 			The spotlight's angle in degrees. This is the angular radius, meaning the angle from the -Z axis, the cone's center, to the edge of the cone. The default angular radius of 45 degrees corresponds to a cone with an angular diameter of 90 degrees.
 			[b]Note:[/b] [member spot_angle] is not affected by [member Node3D.scale] (the light's scale or its parent's scale).
 		</member>
+		<member name="spot_aspect" type="float" setter="set_param" getter="get_param" default="1.0">
+			The spotlight's projected aspect ratio, which controls the width of its light cone relative to [member spot_angle].
+		</member>
 		<member name="spot_angle_attenuation" type="float" setter="set_param" getter="get_param" default="1.0">
 			The spotlight's [i]angular[/i] attenuation curve. See also [member spot_attenuation].
 		</member>

@@ -40,6 +40,7 @@
 #include "servers/rendering/storage/light_storage.h"
 #include "servers/rendering/storage/utilities.h"
 
+
 class RenderDataRD;
 
 namespace RendererRD {
@@ -65,7 +66,8 @@ private:
 	uint32_t max_cluster_elements = 512;
 
 	/* LIGHT */
-	struct Light {
+	struct Light
+	{
 		RSE::LightType type;
 		float param[RSE::LIGHT_PARAM_MAX];
 		bool flags[RSE::LIGHT_FLAG_MAX];
@@ -93,13 +95,16 @@ private:
 
 		Dependency dependency;
 	};
-
 	mutable RID_Owner<Light, true> light_owner;
+
 
 	/* LIGHT INSTANCE */
 
-	struct LightInstance {
-		struct ShadowTransform {
+	struct LightInstance
+	{
+		/// Light-space transform matrix, primarily used for shadowmap rendering.
+		struct ShadowTransform
+		{
 			Projection camera;
 			Transform3D transform;
 			float farplane = 0.0;
@@ -133,15 +138,13 @@ private:
 
 		Rect2 directional_rect;
 
-		HashSet<RID> shadow_atlases; //shadow atlases where this light is registered
+		HashSet<RID> shadow_atlases;  ///< Shadow atlases where this light is registered.
 
 		ForwardID forward_id = -1;
 
 		LightInstance() {}
 	};
-
 	mutable RID_Owner<LightInstance> light_instance_owner;
-
 
 	/**
 	 * CPU-side struct backing GPU-side SSBOs for `OmniLight3D`, `SpotLight3D`, and `AreaLight3D`.
@@ -150,53 +153,44 @@ private:
 	 */
 	struct LightData
 	{
-		/** `vec3` representing the light's position in world-space. */
+		/// `vec3` representing the light's position in world-space.
 		float position[3];
-		/** Reciprocal of the light's influence range in meters. */
+		/// Reciprocal of the light's influence range in meters.
 		float inv_radius;
 	//	----
-		/**
-		 * \b `SpotLight3D`/`AreaLight3D`: Normalized `vec3` representing the light's "facing" direction in world-space.
-		 * \b `OmniLight3D`: `vec2` dual-paraboloid offset, `z` unused.
-		 */
+		/// \b `SpotLight3D`/`AreaLight3D`: Normalized `vec3` representing the light's "facing" direction in world-space.
+		/// \b `OmniLight3D`: `vec2` dual-paraboloid offset, `z` unused.
 		float direction[3];
-		/**
-		 * \b `OmniLight3D`/`SpotLight3D`: Radius of the light's emission sphere in meters. `0` for punctual lights.
-		 */
+		/// \b `OmniLight3D`/`SpotLight3D`: Radius of the light's emission sphere in meters. `0` for punctual lights.
 		float size;
 	//	----
-		/** `vec3` representing the scene-linear RGB color emitted by the light, scaled by its `energy` parameter. */
+		/// `vec3` representing the scene-linear RGB color emitted by the light, scaled by its `energy` parameter.
 		float color[3];
-		/** Scalar in the range `[0.0, 2.0]` controlling the light's distance attenuation curve. */
+		/// Scalar in the range `[0.0, 2.0]` controlling the light's distance attenuation curve.
 		float attenuation;
 	//	----
 		float area_width[3];
-		/**
-		 * \e without Projector:
-		 * `SpotLight3D`: Reciprocal of the light's spot attenutation factor.
-		 * \n
-		 * \e with Projector:
-		 * \b `OmniLight3D`/`SpotLight3D`: `pow(exp2(max_projector_mip - 1) - 1, 2)` \n
-		 * \b `AreaLight3D`: `1 / (range + diagonal/2)`
-		 */
+		/// \e without Projector:
+		/// \b `SpotLight3D`: Reciprocal of the light's spot attenutation factor.
+		/// \n
+		/// \e with Projector:
+		/// \b `OmniLight3D`/`SpotLight3D`: `pow(exp2(max_projector_mip - 1) - 1, 2)` \n
+		/// \b `AreaLight3D`: `1 / (range + diagonal/2)`
 		float inv_spot_attenuation;
 	//	----
 		float area_height[3];
-		/**
-		 * \b `SpotLight3D`: Reciprocal of spot cone angle, in radians.
-		 * \b `AreaLight3D`: Mipmap count.
-		 */
-		float spot_angle_rcp;
+		/// Number of mipmaps used by an `AreaLight3D's` texture.
+		float area_texture_mips;
 	//	----
 		float specular_amount;
 		float shadow_opacity;
 		float projector_blur_scale;
 		float near_clip_rcp;
 	//	----
-		/** `vec4` representing the position (`xy`) and scale (`zw`) of the light's shadow map in the global shadow atlas. */
+		/// `vec4` representing the position (`xy`) and scale (`zw`) of the light's shadow map in the global shadow atlas.
 		float atlas_rect[4];
 	//	----
-		float shadow_matrix[16];
+		float light_matrix[16];
 	//	----
 		float shadow_bias;
 		float shadow_normal_bias;
@@ -211,12 +205,14 @@ private:
 		float projector_rect[4];
 	};
 
-
-	struct LightInstanceDepthSort {
+	struct LightInstanceDepthSort
+	{
 		float depth;
 		LightInstance *light_instance;
 		Light *light;
-		bool operator<(const LightInstanceDepthSort &p_sort) const {
+		
+		bool operator<(const LightInstanceDepthSort &p_sort) const
+		{
 			return depth < p_sort.depth;
 		}
 	};
@@ -237,6 +233,7 @@ private:
 
 	ForwardIDType _light_type_to_forward_id_type(RSE::LightType p_type);
 
+	
 	/* DIRECTIONAL LIGHT DATA */
 
 	struct DirectionalLightData {

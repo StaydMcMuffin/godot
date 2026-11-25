@@ -928,13 +928,23 @@ public:
 	virtual
 	void setup_added_reflection_probe(const Transform3D &p_transform, const Vector3 &p_half_size) override;
 
+	/// Passes relevant light data to the cluster builder.
 	virtual
-	void setup_added_light(const RSE::LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, bool p_spot_frustum, const Vector2 &p_area_size) override;
+	void setup_added_light (
+	  const	RSE::LightType p_type,
+	  const	Transform3D &p_transform,
+			float p_radius,
+			float p_spot_aperture,
+			float p_spot_aspect,
+			bool p_spot_frustum,
+	  const	Vector2 &p_area_size
+	) override;
 	
 	virtual
 	void setup_added_decal(const Transform3D &p_transform, const Vector3 &p_half_size) override;
 
-	virtual void base_uniforms_changed() override;
+	virtual
+	void base_uniforms_changed() override;
 
 
 	// SDFGI Update //

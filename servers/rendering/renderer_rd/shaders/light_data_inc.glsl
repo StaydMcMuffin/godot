@@ -25,7 +25,7 @@ struct LightData
 	float near_clip_rcp;
 
 	vec4 atlas_rect; // rect in the shadow atlas
-	mat4 shadow_matrix;
+	mat4 light_matrix;
 
 	float shadow_bias;
 	float shadow_normal_bias;

@@ -141,7 +141,7 @@ public:
 
 class ClusterBuilderRD {
 public:
-	static constexpr float WIDE_SPOT_ANGLE_THRESHOLD_DEG = 60.0f;
+	static constexpr float WIDE_SPOT_ANGLE_THRESHOLD_TAN = 1.732050807568877293527444f;  // Math::tan(Math::deg_to_rad(60.0))
 
 	enum LightType {
 		LIGHT_TYPE_OMNI,
@@ -241,41 +241,53 @@ public:
 
 	void begin(const Transform3D &p_view_transform, const Projection &p_cam_projection, bool p_flip_y);
 
-	_FORCE_INLINE_ void add_light(LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture, bool p_spot_frustum, const Vector2 &p_area_size) {
-		if (p_type == LIGHT_TYPE_OMNI && cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT] == max_elements_by_type) {
+
+	_FORCE_INLINE_
+	void add_light (
+			LightType p_type,
+	  const	Transform3D &p_transform,
+			float p_radius,
+			float p_spot_aperture,
+			float p_spot_aspect,
+			bool p_spot_frustum,
+	  const	Vector2 &p_area_size
+		)
+	{
+		if (p_type == LIGHT_TYPE_OMNI && cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT] == max_elements_by_type)
 			return; // Max number elements reached.
-		}
-		if (p_type == LIGHT_TYPE_SPOT && cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT] == max_elements_by_type) {
+		if (p_type == LIGHT_TYPE_SPOT && cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT] == max_elements_by_type)
 			return; // Max number elements reached.
-		}
-		if (p_type == LIGHT_TYPE_AREA && cluster_count_by_type[ELEMENT_TYPE_AREA_LIGHT] == max_elements_by_type) {
+		if (p_type == LIGHT_TYPE_AREA && cluster_count_by_type[ELEMENT_TYPE_AREA_LIGHT] == max_elements_by_type)
 			return; // Max number elements reached.
-		}
 
 		RenderElementData &e = render_elements[render_element_count];
 
 		Transform3D xform = view_xform * p_transform;
 
 		float radius = xform.basis.get_uniform_scale();
-		if (radius < 0.98 || radius > 1.02) {
+		if (radius < 0.98 || radius > 1.02)
 			xform.basis.orthonormalize();
-		}
 
-		radius *= p_radius;
+		radius *= p_radius;  // TODO(Stayd): uhhh I thought transform scale wasn't supposed to affect lights in Godot?
 
-		// Spotlights with wide angle are trated as Omni lights.
+		// Spotlights with wide angle are treated as Omni lights.
 		// If the spot angle is above the threshold, we need a sphere instead of a cone for building the clusters
 		// since the cone gets too flat/large (spot angle close to 90 degrees) or
 		// can't even cover the affected area of the light (spot angle above 90 degrees).
-		if (p_type == LIGHT_TYPE_OMNI || (p_type == LIGHT_TYPE_SPOT && p_spot_aperture > WIDE_SPOT_ANGLE_THRESHOLD_DEG)) {
-			radius *= shared->sphere_overfit; // Overfit icosphere.
+		if (p_type == LIGHT_TYPE_OMNI
+		|| (p_type == LIGHT_TYPE_SPOT && (Math::tan(Math::deg_to_rad(p_spot_aperture)) * MAX(p_spot_aspect, 1.0)) > WIDE_SPOT_ANGLE_THRESHOLD_TAN))
+		{
+			radius *= shared->sphere_overfit;  // Overfit icosphere.
 
 			float depth = -xform.origin.z;
-			if (camera_orthogonal) {
+			if (camera_orthogonal)
+			{
 				e.touches_near = (depth - radius) < z_near;
-			} else {
-				// Contains camera inside light.
-				float radius2 = radius * shared->sphere_overfit; // Overfit again for outer size (camera may be outside actual sphere but behind an icosphere vertex)
+			}
+			else
+			{
+				// Camera is inside light volume.
+				float radius2 = radius * shared->sphere_overfit;  // Overfit again for outer size (camera may be outside actual sphere but behind an icosphere vertex).
 				e.touches_near = xform.origin.length_squared() < radius2 * radius2;
 			}
 
@@ -283,11 +295,14 @@ public:
 			e.scale[0] = radius;
 			e.scale[1] = radius;
 			e.scale[2] = radius;
-			if (p_type == LIGHT_TYPE_OMNI) {
+			if (p_type == LIGHT_TYPE_OMNI)
+			{
 				e.type = ELEMENT_TYPE_OMNI_LIGHT;
 				e.original_index = cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT];
 				cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT]++;
-			} else { // LIGHT_TYPE_SPOT with wide angle.
+			}
+			else  // LIGHT_TYPE_SPOT with wide angle.
+			{
 				e.type = ELEMENT_TYPE_SPOT_LIGHT;
 				e.has_wide_spot_angle = true;
 				e.spot_frustum = false;
@@ -296,44 +311,47 @@ public:
 			}
 
 			RendererRD::MaterialStorage::store_transform_transposed_3x4(xform, e.transform_inv);
+		}
+		else if (p_type == LIGHT_TYPE_SPOT)
+		{
+			radius *= shared->cone_overfit;  // Overfit cone.
 
-		} else if (p_type == LIGHT_TYPE_SPOT) { /*LIGHT_TYPE_SPOT with no wide angle*/
-			radius *= shared->cone_overfit; // Overfit cone.
-
-			real_t len = Math::tan(Math::deg_to_rad(p_spot_aperture)) * radius;
+			real_t len_x = Math::tan(Math::deg_to_rad(p_spot_aperture)) * radius * p_spot_aspect;
+			real_t len_y = Math::tan(Math::deg_to_rad(p_spot_aperture)) * radius;
 			// Approximate, probably better to use a cone support function.
 			float max_d = -1e20;
 			float min_d = 1e20;
 #define CONE_MINMAX(m_x, m_y) \
 	{ \
-		float d = -xform.xform(Vector3(len * m_x, len * m_y, -radius)).z; \
+		float d = -xform.xform(Vector3(len_x * m_x, len_y * m_y, -radius)).z; \
 		min_d = MIN(d, min_d); \
 		max_d = MAX(d, max_d); \
 	}
 
-			CONE_MINMAX(1, 1);
+			CONE_MINMAX( 1, 1);
 			CONE_MINMAX(-1, 1);
-			CONE_MINMAX(-1, -1);
-			CONE_MINMAX(1, -1);
+			CONE_MINMAX(-1,-1);
+			CONE_MINMAX( 1,-1);
 
 			if (!camera_orthogonal)
 			{
 				Plane base_plane(-xform.basis.get_column(Vector3::AXIS_Z), xform.origin);
 				float dist = base_plane.distance_to(Vector3());
-				if (dist >= 0 && dist < radius) {
+				if (dist >= 0 && dist < radius)
+				{
 					// Contains camera inside light, check angle.
-					float angle = Math::rad_to_deg(Math::acos((-xform.origin.normalized()).dot(-xform.basis.get_column(Vector3::AXIS_Z))));
-					e.touches_near = angle < p_spot_aperture * (p_spot_frustum ? 1.414 : 1.05); //overfit aperture a little due to cone overfit
-				} else {
-					e.touches_near = false;
+					float angle = Math::acos((-xform.origin.normalized()).dot(-xform.basis.get_column(Vector3::AXIS_Z)));
+					e.touches_near = angle < Math::atan(MAX(len_x, len_y)) * (p_spot_frustum ? 1.414 : 1.05);  // Scale to account for frustum corners, otherwise overfit cone mesh.
 				}
+				else
+					e.touches_near = false;
 			}
 			else
 				e.touches_near = min_d < z_near;
 
 			e.touches_far = max_d > z_far;
-			e.scale[0] = len * shared->cone_overfit;
-			e.scale[1] = len * shared->cone_overfit;
+			e.scale[0] = len_x * shared->cone_overfit;
+			e.scale[1] = len_y * shared->cone_overfit;
 			e.scale[2] = radius;
 			e.has_wide_spot_angle = false;
 			e.spot_frustum = p_spot_frustum;
@@ -343,22 +361,26 @@ public:
 			RendererRD::MaterialStorage::store_transform_transposed_3x4(xform, e.transform_inv);
 
 			cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT]++;
-		} else { /* LIGHT_TYPE_AREA */
+		}
+		else  // LIGHT_TYPE_AREA
+		{
 			Vector3 scale = Vector3(p_area_size.x / 2.0 + radius, p_area_size.y / 2.0 + radius, radius / 2.0);
 
-			for (uint32_t i = 0; i < 3; i++) {
+			for (uint32_t i = 0; i < 3; i++)
+			{
 				float s = xform.basis.rows[i].length();
-				//scale[i] *= s; // lights ignore scale
+				//scale[i] *= s;  // Lights ignore transform scale.
 				xform.basis.rows[i] /= s;
 			}
-			xform.origin -= xform.basis.get_column(Vector3::AXIS_Z) * scale.z; // translate center to center of box
+			xform.origin -= xform.basis.get_column(Vector3::AXIS_Z) * scale.z;  // Translate center to center of box.
 
 			float depth = -xform.origin.z;
 			float box_depth = Math::abs(xform.basis.xform_inv(Vector3(0, 0, -1)).dot(scale));
 
-			if (camera_orthogonal) {
+			if (camera_orthogonal)
 				e.touches_near = (depth - box_depth) < z_near;
-			} else {
+			else
+			{
 				// Contains camera inside box.
 				Vector3 inside = xform.xform_inv(Vector3(0, 0, 0)).abs();
 				e.touches_near = inside.x < scale.x && inside.y < scale.y && inside.z < scale.z;
@@ -380,6 +402,7 @@ public:
 
 		render_element_count++;
 	}
+
 
 	_FORCE_INLINE_ void add_box(BoxType p_box_type, const Transform3D &p_transform, const Vector3 &p_half_size) {
 		if (p_box_type == BOX_TYPE_DECAL && cluster_count_by_type[ELEMENT_TYPE_DECAL] == max_elements_by_type) {

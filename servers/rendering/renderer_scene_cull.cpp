@@ -2570,9 +2570,10 @@ bool RendererSceneCull::_light_instance_update_shadow (
 			const real_t range = MAX(0.002, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE));
 			const real_t z_near = MAX(0.001, MIN(range - 0.001, RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_NEAR_CLIP)));
 			const real_t angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
+			const real_t aspect = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ASPECT);
 
 			Projection cm;
-			cm.set_perspective(angle * 2.0, 1.0, z_near, range);
+			cm.set_perspective(angle * 2.0, aspect, z_near, range);
 
 			Vector<Plane> planes = cm.get_projection_planes(light_transform);
 
@@ -2580,9 +2581,13 @@ bool RendererSceneCull::_light_instance_update_shadow (
 
 			Vector<Vector3> points = Geometry3D::compute_convex_mesh_points(&planes[0], planes.size());
 
-			struct CullConvex {
+			struct CullConvex
+			{
 				PagedArray<Instance *> *result;
-				_FORCE_INLINE_ bool operator()(void *p_data) {
+				
+				_FORCE_INLINE_
+				bool operator()(void *p_data)
+				{
 					Instance *p_instance = (Instance *)p_data;
 					result->push_back(p_instance);
 					return false;
@@ -2596,23 +2601,24 @@ bool RendererSceneCull::_light_instance_update_shadow (
 
 			RendererSceneRender::RenderShadowData &shadow_data = render_shadow_data[max_shadows_used++];
 
-			if (!light->is_shadow_update_full()) {
+			if (!light->is_shadow_update_full())
 				light_culler->cull_regular_light(instance_shadow_cull_result);
-			}
 
-			for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
+			for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++)
+			{
 				Instance *instance = instance_shadow_cull_result[j];
 				const bool is_inactive_particle = (instance->base_type == RSE::INSTANCE_PARTICLES) && RSG::particles_storage->particles_is_inactive(instance->base);
-				if (!instance->visible || !((1 << instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base)) || is_inactive_particle) {
+				if (!instance->visible || !((1 << instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base)) || is_inactive_particle)
+				{
 					continue;
-				} else {
-					if (static_cast<InstanceGeometryData *>(instance->base_data)->material_is_animated) {
+				}
+				else
+				{
+					if (static_cast<InstanceGeometryData *>(instance->base_data)->material_is_animated)
 						animated_material_found = true;
-					}
 
-					if (instance->mesh_instance.is_valid()) {
+					if (instance->mesh_instance.is_valid())
 						RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
-					}
 				}
 				shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
 			}
@@ -3572,11 +3578,13 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 					} break;
 					case RSE::LIGHT_SPOT:
 					{
+						// TODO(Stayd): Look into a more correct way to account for spotlight aspect ratio.
 						const real_t range = MAX(0.002, RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE));
 						const real_t z_near = MAX(0.001, MIN(range - 0.001, RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_NEAR_CLIP)));
 						const real_t angle = Math::deg_to_rad(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_SPOT_ANGLE));
+						const real_t aspect = Math::deg_to_rad(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_SPOT_ASPECT));
 
-						float w = (range - z_near) * Math::sin(angle);
+						float w = (range - z_near) * Math::sin(angle) * aspect;
 						float d = range * Math::cos(angle);
 
 						// Position at the base of the spot cone, ie. the _end_ of the light's range.

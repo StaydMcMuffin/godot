@@ -150,6 +150,7 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_SIZE] = 0.0;
 	light.param[RSE::LIGHT_PARAM_ATTENUATION] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SPOT_ANGLE] = 45;
+	light.param[RSE::LIGHT_PARAM_SPOT_ASPECT] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SPOT_ATTENUATION] = 1.0;
 	light.param[RSE::LIGHT_PARAM_NEAR_CLIP] = 0.025;
 	light.param[RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE] = 0;
@@ -235,6 +236,7 @@ void LightStorage::light_set_param (
 	{
 		case RSE::LIGHT_PARAM_RANGE:
 		case RSE::LIGHT_PARAM_SPOT_ANGLE:
+		case RSE::LIGHT_PARAM_SPOT_ASPECT:
 		case RSE::LIGHT_PARAM_NEAR_CLIP:
 		case RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_1_OFFSET:
@@ -798,8 +800,8 @@ void LightStorage::update_light_buffers(
 
 				DirectionalLightData &light_data = directional_lights[r_directional_light_count];
 
-				Transform3D light_transform = light_instance->transform;
-				Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 0, 1))).normalized();
+				Transform3D light_instance_transform = light_instance->transform;
+				Vector3 direction = inverse_transform.basis.xform(light_instance_transform.basis.xform(Vector3(0, 0, 1))).normalized();
 				light_data.direction[0] = direction.x;
 				light_data.direction[1] = direction.y;
 				light_data.direction[2] = direction.z;
@@ -819,7 +821,7 @@ void LightStorage::update_light_buffers(
 				{
 					light_data.size = 1.0 - Math::cos(angular_diameter);
 					if (light->flags[RSE::LIGHT_FLAG_NORMALIZE_ENERGY])
-						light_data.energy /= 1.0 + light_data.size;  // Spherical area light normalization, scale total outgoing radiance in proportion solid angle.
+						light_data.energy /= 1.0 + light_data.size;  // Spherical area light normalization, scale total outgoing radiance in proportion to solid angle.
 				}
 
 				Color linear_col = light->color.srgb_to_linear();
@@ -897,8 +899,8 @@ void LightStorage::update_light_buffers(
 					continue;
 				}
 
-				Transform3D light_transform = light_instance->transform;
-				const real_t distance = p_camera_transform.origin.distance_to(light_transform.origin);
+				Transform3D light_instance_transform = light_instance->transform;
+				const real_t distance = p_camera_transform.origin.distance_to(light_instance_transform.origin);
 
 				if (light->distance_fade) {
 					const float fade_begin = light->distance_fade_begin;
@@ -922,8 +924,8 @@ void LightStorage::update_light_buffers(
 					continue;
 				}
 
-				Transform3D light_transform = light_instance->transform;
-				const real_t distance = p_camera_transform.origin.distance_to(light_transform.origin);
+				Transform3D light_instance_transform = light_instance->transform;
+				const real_t distance = p_camera_transform.origin.distance_to(light_instance_transform.origin);
 
 				if (light->distance_fade) {
 					const float fade_begin = light->distance_fade_begin;
@@ -947,8 +949,8 @@ void LightStorage::update_light_buffers(
 					continue;
 				}
 
-				Transform3D light_transform = light_instance->transform;
-				const real_t distance = p_camera_transform.origin.distance_to(light_transform.origin);
+				Transform3D light_instance_transform = light_instance->transform;
+				const real_t distance = p_camera_transform.origin.distance_to(light_instance_transform.origin);
 
 				if (light->distance_fade) {
 					const float fade_begin = light->distance_fade_begin;
@@ -1026,7 +1028,7 @@ void LightStorage::update_light_buffers(
 		}
 
 		LightData &light_data = *light_data_ptr;
-		Transform3D light_transform = light_instance->transform;
+		Transform3D light_instance_transform = light_instance->transform;
 
 		float sign = light->negative ? -1 : 1;
 		Color linear_col = light->color.srgb_to_linear();
@@ -1096,30 +1098,28 @@ void LightStorage::update_light_buffers(
 		const float range = MAX(0.002, light->param[RSE::LIGHT_PARAM_RANGE]);
 		light_data.inv_radius = 1.0 / range;
 		Vector2 area_size = light->area_size;
-		Vector3 pos = inverse_transform.xform(light_transform.origin);
+		Vector3 pos = inverse_transform.xform(light_instance_transform.origin);
 		light_data.position[0] = pos.x;
 		light_data.position[1] = pos.y;
 		light_data.position[2] = pos.z;
 
-		Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 0, -1))).normalized();
+		Vector3 direction = inverse_transform.basis.xform(light_instance_transform.basis.xform(Vector3(0, 0, -1))).normalized();
 
 		light_data.direction[0] = direction.x;
 		light_data.direction[1] = direction.y;
 		light_data.direction[2] = direction.z;
 
-		const float spot_angle = MAX(0.001, light->param[RSE::LIGHT_PARAM_SPOT_ANGLE]);
 		const float near_clip = type == RSE::LIGHT_SPOT ? MAX(0.001, MIN(range - 0.001, light->param[RSE::LIGHT_PARAM_NEAR_CLIP])) : 0.025;
 		if (type == RSE::LIGHT_SPOT)
 		{
-			light_data.spot_angle_rcp = 1.0 / Math::deg_to_rad(spot_angle);
 			light_data.near_clip_rcp = 1.0 / near_clip;
-			light_data.inv_spot_attenuation = 4.0 / light->param[RSE::LIGHT_PARAM_SPOT_ATTENUATION];
+			light_data.inv_spot_attenuation = 2.0 / light->param[RSE::LIGHT_PARAM_SPOT_ATTENUATION];
 		}
 
 		if (type == RSE::LIGHT_AREA)
 		{
-			Vector3 area_vec_a = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(1, 0, 0))).normalized() * area_size.x;
-			Vector3 area_vec_b = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 1, 0))).normalized() * area_size.y;
+			Vector3 area_vec_a = inverse_transform.basis.xform(light_instance_transform.basis.xform(Vector3(1, 0, 0))).normalized() * area_size.x;
+			Vector3 area_vec_b = inverse_transform.basis.xform(light_instance_transform.basis.xform(Vector3(0, 1, 0))).normalized() * area_size.y;
 
 			light_data.area_width[0] = area_vec_a.x;
 			light_data.area_width[1] = area_vec_a.y;
@@ -1192,14 +1192,15 @@ void LightStorage::update_light_buffers(
 		}
 
 		RID area_texture = light->area_texture;
-		if (area_texture.is_valid() && type == RSE::LIGHT_AREA) {
+		if (area_texture.is_valid() && type == RSE::LIGHT_AREA)
+		{
 			Rect2 rect = texture_storage->area_light_atlas_get_texture_rect(area_texture);
 			light_data.projector_rect[0] = rect.position.x;
 			light_data.projector_rect[1] = rect.position.y;
 			light_data.projector_rect[2] = rect.size.width;
 			light_data.projector_rect[3] = rect.size.height;
 			Size2i texture_size = (rect.size * texture_storage->area_light_atlas_get_size()).ceil();
-			light_data.spot_angle_rcp = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), texture_storage->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
+			light_data.area_texture_mips = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), texture_storage->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
 		}
 
 		bool needs_shadow = p_using_shadows && light->shadow &&
@@ -1216,10 +1217,12 @@ void LightStorage::update_light_buffers(
 						? light->param[RSE::LIGHT_PARAM_SHADOW_OPACITY] * shadow_opacity_fade
 						: 0.0;
 
-		// Get projector transform as needed for either shadow mapping or projector texture.
-		if (projector.is_valid() || light_data.shadow_opacity > 0.001)
+		// Get transform matrix if needed.
+		const float spot_angle = MAX(0.001, light->param[RSE::LIGHT_PARAM_SPOT_ANGLE]);
+		const float spot_aspect = light->param[RSE::LIGHT_PARAM_SPOT_ASPECT];
+		if (type == RSE::LIGHT_SPOT || projector.is_valid() || light_data.shadow_opacity > 0.001)
 		{
-			Transform3D modelview = (inverse_transform * light_transform).inverse();
+			const Transform3D modelview = (inverse_transform * light_instance_transform).inverse();
 			if (type == RSE::LIGHT_SPOT)
 			{
 				Projection bias;
@@ -1232,14 +1235,14 @@ void LightStorage::update_light_buffers(
 				if (light_data.shadow_opacity > 0.001)
 					cm = light_instance->shadow_transform[0].camera;
 				else
-					cm.set_perspective(spot_angle * 2.0, 1.0, near_clip, range);  // Must match RendererSceneCull::_light_instance_update_shadow()
+					cm.set_perspective(spot_angle * 2.0, spot_aspect, near_clip, range);  // Must match RendererSceneCull::_light_instance_update_shadow()
 
 				Projection shadow_mtx = bias * correction * cm * modelview;
-				RendererRD::MaterialStorage::store_camera(shadow_mtx, light_data.shadow_matrix);
+				RendererRD::MaterialStorage::store_camera(shadow_mtx, light_data.light_matrix);
 			}
 			else  // RSE::LIGHT_OMNI || type == RSE::LIGHT_AREA
 			{
-				RendererRD::MaterialStorage::store_transform(modelview, light_data.shadow_matrix);
+				RendererRD::MaterialStorage::store_transform(modelview, light_data.light_matrix);
 			}
 		}
 
@@ -1284,8 +1287,10 @@ void LightStorage::update_light_buffers(
 
 		light_instance->cull_mask = light->cull_mask;
 
-		// Hook for subclass to do further processing.
-		RendererSceneRenderRD::get_singleton()->setup_added_light(type, light_transform, range, spot_angle, spot_projector, area_size);
+		// Hook for Renderer subclass to do further processing.
+		RendererSceneRenderRD::get_singleton()->setup_added_light(
+				type, light_instance_transform, range, spot_angle, spot_aspect, spot_projector, area_size
+		);
 
 		r_positional_light_count++;
 	}
@@ -1300,6 +1305,7 @@ void LightStorage::update_light_buffers(
 	if (r_directional_light_count)
 		RD::get_singleton()->buffer_update(directional_light_buffer, 0, sizeof(DirectionalLightData) * r_directional_light_count, directional_lights);
 }
+
 
 /* REFLECTION PROBE */
 

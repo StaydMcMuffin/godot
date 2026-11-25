@@ -501,7 +501,7 @@ void main() {
 							vec4 uv_rect = omni_lights.data[light_index].atlas_rect;
 							vec2 flip_offset = omni_lights.data[light_index].direction.xy;
 
-							vec3 local_vert = (omni_lights.data[light_index].shadow_matrix * vec4(view_pos, 1.0)).xyz;
+							vec3 local_vert = (omni_lights.data[light_index].light_matrix * vec4(view_pos, 1.0)).xyz;
 
 							float shadow_len = length(local_vert); //need to remember shadow len from here
 							vec3 shadow_sample = safe_normalize(local_vert);
@@ -576,7 +576,7 @@ void main() {
 
 							vec4 v = vec4(view_pos, 1.0);
 
-							vec4 splane = (spot_lights.data[light_index].shadow_matrix * v);
+							vec4 splane = (spot_lights.data[light_index].light_matrix * v);
 							splane.z -= spot_lights.data[light_index].shadow_bias;
 							float safe_w = abs(splane.w) > 1e-6 ? splane.w : (splane.w >= 0.0 ? 1e-6 : -1e-6);
 							splane /= safe_w;
@@ -671,7 +671,7 @@ void main() {
 								//has shadow
 								vec4 uv_rect = area_lights.data[light_index].atlas_rect;
 
-								vec3 local_vert = (area_lights.data[light_index].shadow_matrix * vec4(view_pos, 1.0)).xyz;
+								vec3 local_vert = (area_lights.data[light_index].light_matrix * vec4(view_pos, 1.0)).xyz;
 
 								float shadow_len = length(local_vert); //need to remember shadow len from here
 								vec3 shadow_sample = normalize(local_vert);
